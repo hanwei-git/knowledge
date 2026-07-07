@@ -207,11 +207,81 @@ textarea {
   margin: 0 0 10px;
 }
 
-.capture,
 .compact-form,
 .search-form {
   display: grid;
   gap: 10px;
+}
+
+.capture-workspace {
+  display: grid;
+  gap: 12px;
+  min-height: calc(100vh - 160px);
+}
+
+.capture-input {
+  min-height: min(62vh, 680px);
+  border-color: #b9c7b1;
+  background: #fbfdf8;
+  font-size: 18px;
+  line-height: 1.55;
+  padding: 18px;
+}
+
+.capture-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.suggestion-row {
+  display: flex;
+  align-items: center;
+  flex: 1 1 360px;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.suggestion-row span {
+  border-radius: 999px;
+  background: #e7efdf;
+  color: #334936;
+  font-size: 12px;
+  padding: 5px 9px;
+}
+
+.suggestion-row .suggestion-label {
+  background: transparent;
+  color: #687568;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  text-transform: uppercase;
+}
+
+.suggestion-row small {
+  color: #687568;
+}
+
+.detail-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 160px 160px 1fr;
+  gap: 10px;
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.inline-error {
+  margin: 0;
 }
 
 .row,
@@ -328,12 +398,17 @@ textarea {
   .grid.two,
   .project-layout,
   .search-form,
-  .archive-controls {
+  .archive-controls,
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 
   .sidebar {
     position: static;
     height: auto;
+  }
+
+  .capture-input {
+    min-height: 52vh;
   }
 }

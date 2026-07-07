@@ -10,8 +10,10 @@ import {
   getGitLog,
   getGitStatus,
   getSummary,
+  organizeCapture,
   searchEntries
 } from "./api.js";
+import type { OrganizedDraft } from "../core/organizer.js";
 import type { EntryStatus, EntryType, KnowledgeEntry, ProjectWiki, SearchFilters } from "../core/types.js";
 import "./styles.css";
 
@@ -83,59 +85,192 @@ function App() {
 
 function Home({ summary, onSaved, setNotice }: { summary: Awaited<ReturnType<typeof getSummary>>; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
   return (
-    <div className="grid two">
-      <QuickCapture onSaved={onSaved} setNotice={setNotice} />
-      <section className="panel">
-        <h2>Recent updates</h2>
-        <EntryList entries={summary.entries.slice(0, 8)} empty="No entries yet. Capture the first note." />
-      </section>
-      <section className="panel">
-        <h2>Projects</h2>
-        <div className="project-stack">
-          {summary.projects.map((project) => <ProjectCard key={project.slug} project={project} />)}
-          {!summary.projects.length && <p className="muted">Create a project page to anchor the wiki.</p>}
-        </div>
-      </section>
-      <section className="panel">
-        <h2>Inbox waiting room</h2>
-        <EntryList entries={summary.inbox.slice(0, 6)} empty="Inbox is clear." />
-      </section>
-    </div>
+    <CaptureWorkspace summary={summary} onSaved={onSaved} setNotice={setNotice} />
   );
 }
 
-function QuickCapture({ onSaved, setNotice }: { onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
-  const [title, setTitle] = useState("");
+function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Awaited<ReturnType<typeof getSummary>>; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
   const [body, setBody] = useState("");
-  const [tags, setTags] = useState("");
+  const [draft, setDraft] = useState<OrganizedDraft | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    await createInboxEntry({
-      title,
-      body,
-      tags: splitTags(tags),
-      type: "note",
-      project: "",
-      status: "draft",
-      source: ""
-    });
-    setTitle("");
-    setBody("");
-    setTags("");
-    setNotice("Captured to Inbox");
-    await onSaved();
+  async function saveInbox() {
+    if (!validateBody(body)) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await createInboxEntry({
+        title: titleFromBody(body),
+        body: body.trim(),
+        tags: [],
+        type: "note",
+        project: "",
+        status: "draft",
+        source: ""
+      });
+      resetCapture();
+      setNotice("Saved to inbox for project review");
+      await onSaved();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
   }
 
+  async function organizeAndSave() {
+    if (!validateBody(body)) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const organized = await ensureDraft();
+      const input = {
+        title: organized.title,
+        body: organized.body,
+        tags: organized.tags,
+        type: organized.type,
+        project: organized.project,
+        status: organized.status,
+        source: organized.source
+      };
+      const entry = organized.project ? await createStructuredEntry(input) : await createInboxEntry(input);
+      resetCapture();
+      setNotice(organized.project ? `Saved to ${entry.metadata.project}` : "Saved to inbox; project needs review");
+      await onSaved();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reviewDetails() {
+    if (!validateBody(body)) {
+      return;
+    }
+    try {
+      await ensureDraft();
+      setDetailsOpen(true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function ensureDraft(): Promise<OrganizedDraft> {
+    if (draft) {
+      return draft;
+    }
+    const organized = await organizeCapture(body);
+    setDraft(organized);
+    return organized;
+  }
+
+  function updateDraft(updates: Partial<OrganizedDraft>) {
+    setDraft((current) => current ? { ...current, ...updates } : current);
+  }
+
+  function validateBody(value: string): boolean {
+    if (!value.trim()) {
+      setError("Paste or type something before saving.");
+      return false;
+    }
+    setError("");
+    return true;
+  }
+
+  function resetCapture() {
+    setBody("");
+    setDraft(null);
+    setDetailsOpen(false);
+    setError("");
+  }
+
+  const suggestion = draft ?? {
+    project: "",
+    type: "note" as EntryType,
+    tags: [] as string[],
+    status: "draft" as EntryStatus,
+    source: "",
+    title: titleFromBody(body),
+    body,
+    saveTarget: "inbox" as const,
+    reason: body.trim() ? "Ready to organize on save." : "Waiting for input."
+  };
+
   return (
-    <form className="panel capture" onSubmit={submit}>
-      <h2>Quick capture</h2>
-      <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Title, issue, link, or decision" required />
-      <textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Paste notes, command output, symptoms, source links, or next thoughts" required />
-      <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="tags: redis, incident, deployment" />
-      <button>Save to Inbox</button>
-    </form>
+    <section className="capture-workspace">
+      <textarea
+        autoFocus
+        className="capture-input"
+        value={body}
+        onChange={(event) => {
+          setBody(event.target.value);
+          setDraft(null);
+          setDetailsOpen(false);
+          setError("");
+        }}
+        placeholder="Paste logs, notes, links, decisions, command output, or rough thoughts..."
+      />
+      {error && <p className="error inline-error">{error}</p>}
+      <div className="capture-actions">
+        <button onClick={organizeAndSave} disabled={saving}>Organize and save</button>
+        <button className="ghost" onClick={saveInbox} disabled={saving}>Save to inbox</button>
+        <div className="suggestion-row" aria-label="Suggested metadata">
+          <span className="suggestion-label">Suggested</span>
+          <span>{suggestion.project || "inbox"}</span>
+          <span>{suggestion.type}</span>
+          <span>{suggestion.status}</span>
+          {suggestion.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+          <small>{suggestion.reason}</small>
+        </div>
+        <button className="ghost" onClick={reviewDetails} disabled={saving}>Review details</button>
+      </div>
+
+      {detailsOpen && draft && (
+        <form className="panel detail-editor" onSubmit={(event) => {
+          event.preventDefault();
+          organizeAndSave();
+        }}>
+          <div className="row">
+            <input value={draft.title} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="Title" required />
+            <select value={draft.project} onChange={(event) => updateDraft({ project: event.target.value, status: event.target.value ? "active" : "draft" })}>
+              <option value="">Inbox</option>
+              {summary.projects.map((project) => <option key={project.slug} value={project.slug}>{project.title}</option>)}
+            </select>
+          </div>
+          <div className="detail-grid">
+            <select value={draft.type} onChange={(event) => updateDraft({ type: event.target.value as EntryType })}>
+              {entryTypes.map((item) => <option key={item}>{item}</option>)}
+            </select>
+            <select value={draft.status} onChange={(event) => updateDraft({ status: event.target.value as EntryStatus })}>
+              {statuses.map((item) => <option key={item}>{item}</option>)}
+            </select>
+            <input value={draft.tags.join(", ")} onChange={(event) => updateDraft({ tags: splitTags(event.target.value) })} placeholder="tags" />
+          </div>
+          <input value={draft.source} onChange={(event) => updateDraft({ source: event.target.value })} placeholder="source URL or file path" />
+          <div className="detail-actions">
+            <button disabled={saving}>Save with details</button>
+            <button className="ghost" type="button" onClick={() => setDetailsOpen(false)}>Close details</button>
+          </div>
+        </form>
+      )}
+    </section>
   );
+}
+
+function titleFromBody(body: string): string {
+  const line = body
+    .split("\n")
+    .map((item) => item.replace(/^#+\s*/, "").trim())
+    .find(Boolean);
+  if (!line) {
+    return "Untitled note";
+  }
+  return line.length > 72 ? `${line.slice(0, 69).trimEnd()}...` : line;
 }
 
 function Projects({ projects, selected, onSelect, onSaved, setNotice }: {

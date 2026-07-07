@@ -1,3 +1,4 @@
+import type { OrganizedDraft } from "../core/organizer.js";
 import type { CreateEntryInput, CreateProjectInput, EntryMetadata, KnowledgeEntry, ProjectWiki, SearchFilters } from "../core/types.js";
 
 export interface Summary {
@@ -23,6 +24,10 @@ export async function createInboxEntry(input: CreateEntryInput): Promise<Knowled
 
 export async function createStructuredEntry(input: CreateEntryInput): Promise<KnowledgeEntry> {
   return request("/api/entries", { method: "POST", body: input });
+}
+
+export async function organizeCapture(body: string): Promise<OrganizedDraft> {
+  return request("/api/organize", { method: "POST", body: { body } });
 }
 
 export async function createProject(input: CreateProjectInput): Promise<KnowledgeEntry> {

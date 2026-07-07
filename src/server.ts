@@ -12,6 +12,7 @@ import {
   searchEntries
 } from "./core/knowledgeStore.js";
 import { commitKnowledge, getGitStatus, getKnowledgeDiff, getKnowledgeLog } from "./core/gitService.js";
+import { organizeDraft } from "./core/organizer.js";
 import type { CreateEntryInput, CreateProjectInput, EntryMetadata, SearchFilters } from "./core/types.js";
 
 const repoRoot = resolve(process.env.KNOWLEDGE_WIKI_ROOT ?? process.cwd());
@@ -70,6 +71,17 @@ async function routeApi(request: IncomingMessage, response: ServerResponse, url:
 
   if (request.method === "POST" && url.pathname === "/api/entries") {
     sendJson(response, 201, await createEntry(repoRoot, await readJson<CreateEntryInput>(request)));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/organize") {
+    const body = await readJson<{ body: string }>(request);
+    const [projects, entries] = await Promise.all([listProjects(repoRoot), listEntries(repoRoot)]);
+    sendJson(response, 200, organizeDraft({
+      body: body.body ?? "",
+      projects,
+      tags: [...new Set(entries.flatMap((entry) => entry.metadata.tags))].sort()
+    }));
     return;
   }
 

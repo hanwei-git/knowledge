@@ -7,7 +7,7 @@
     "dev": "concurrently \"tsx src/server.ts\" \"vite --host 127.0.0.1\"",
     "server": "tsx src/server.ts",
     "build": "tsc --noEmit && vite build",
-    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test": "tsx --test src/**/*.test.ts",
     "start": "tsx src/server.ts"
   },
   "dependencies": {
