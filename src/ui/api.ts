@@ -70,9 +70,20 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
     headers: options.body ? { "Content-Type": "application/json" } : undefined,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
-  const payload = await response.json();
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : undefined;
   if (!response.ok) {
-    throw new Error(payload.error ?? "Request failed.");
+    const message = isErrorPayload(payload)
+      ? payload.error
+      : `Request failed with status ${response.status} ${response.statusText}`.trim();
+    throw new Error(message);
   }
   return payload as T;
+}
+
+function isErrorPayload(value: unknown): value is { error: string } {
+  return typeof value === "object"
+    && value !== null
+    && "error" in value
+    && typeof (value as { error: unknown }).error === "string";
 }
