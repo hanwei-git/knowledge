@@ -1,0 +1,31 @@
+{
+  "name": "engineering-knowledge-wiki",
+  "version": "0.1.0",
+  "description": "Local engineering knowledge wiki backed by Markdown files.",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"tsx src/server.ts\" \"vite --host 127.0.0.1\"",
+    "server": "tsx src/server.ts",
+    "build": "tsc --noEmit && vite build",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.1",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "vite": "^6.4.3",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22.11"
+  }
+}
