@@ -57,6 +57,8 @@ If the Cloudflare project cannot be changed and it runs `wrangler deploy` direct
 npm run build
 ```
 
+The Cloudflare deployment serves a read-only API for browsing and searching committed knowledge. Create, archive, and Git operations require the local Node server.
+
 ## Data Layout
 
 Knowledge is stored as portable Markdown under `knowledge/`:
