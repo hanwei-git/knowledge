@@ -10,6 +10,7 @@
     "test": "tsx --test src/**/*.test.ts",
     "start": "tsx src/server.ts",
     "deploy": "npm run build && wrangler deploy",
+    "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
     "preview": "npm run build && wrangler dev"
   },
   "dependencies": {
