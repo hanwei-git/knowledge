@@ -22,6 +22,14 @@ npm test
 npm run build
 ```
 
+## Deploy
+
+The Cloudflare Worker is named in `wrangler.toml`. Deploy from the repository root so Wrangler updates the existing `knowledge` Worker:
+
+```bash
+npm run deploy
+```
+
 ## Data Layout
 
 Knowledge is stored as portable Markdown under `knowledge/`:
