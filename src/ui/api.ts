@@ -71,6 +71,9 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const text = await response.text();
+  if (text && !isJsonResponse(response, text)) {
+    throw new Error(`Expected JSON from ${path} but received ${response.headers.get("Content-Type") ?? "a non-JSON response"}.`);
+  }
   const payload = text ? JSON.parse(text) : undefined;
   if (!response.ok) {
     const message = isErrorPayload(payload)
@@ -86,4 +89,9 @@ function isErrorPayload(value: unknown): value is { error: string } {
     && value !== null
     && "error" in value
     && typeof (value as { error: unknown }).error === "string";
+}
+
+function isJsonResponse(response: Response, text: string): boolean {
+  const contentType = response.headers.get("Content-Type") ?? "";
+  return contentType.includes("application/json") || /^[\[{]/.test(text.trimStart());
 }
