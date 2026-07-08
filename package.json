@@ -7,9 +7,10 @@
     "dev": "concurrently \"tsx src/server.ts\" \"vite --host 127.0.0.1\"",
     "server": "tsx src/server.ts",
     "build": "tsc --noEmit && vite build",
-    "deploy": "npm run build && npx wrangler deploy --config wrangler.toml",
     "test": "tsx --test src/**/*.test.ts",
-    "start": "tsx src/server.ts"
+    "start": "tsx src/server.ts",
+    "deploy": "npm run build && wrangler deploy",
+    "preview": "npm run build && wrangler dev"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.7.0",
@@ -20,11 +21,13 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.43.0",
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "wrangler": "^4.107.0"
   },
   "engines": {
     "node": ">=22.11"

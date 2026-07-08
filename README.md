@@ -24,7 +24,7 @@ npm run build
 
 ## Deploy
 
-The Cloudflare Worker is named in `wrangler.toml`. Deploy from the repository root so Wrangler updates the existing `knowledge` Worker:
+The Cloudflare Worker is named in `wrangler.jsonc`. Deploy from the repository root so Wrangler updates the existing `knowledge` Worker:
 
 ```bash
 npm run deploy
