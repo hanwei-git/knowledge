@@ -25,6 +25,14 @@ function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+    const timer = setTimeout(() => setNotice(""), 2500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -56,11 +64,11 @@ function App() {
           <button className="ghost" onClick={() => refresh().then(() => setNotice("Refreshed"))}>Refresh</button>
         </header>
 
-        {notice && <div className="notice">{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
-
         {view === "capture" && <CaptureWorkspace summary={summary} onSaved={refresh} setNotice={setNotice} />}
         {view === "commands" && <Commands entries={summary.entries} onSaved={refresh} setNotice={setNotice} />}
       </section>
+
+      {notice && <div className="toast">{notice}</div>}
     </main>
   );
 }
@@ -118,7 +126,13 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
           setAnnotationOverride(null);
           setError("");
         }}
-        placeholder={"Paste a command (one line or a block).\nWrite your own comments with # / -- / // — they become the description, and are kept out of the copyable command."}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            save();
+          }
+        }}
+        placeholder={"Paste a command. Use # / -- / // for your own comment.\nEnter to save, Shift+Enter for a new line."}
       />
       {error && <p className="error inline-error">{error}</p>}
       <div className="panel detail-editor">
@@ -199,20 +213,15 @@ function Commands({ entries, onSaved, setNotice }: {
       <div className="command-list">
         {filtered.map((entry) => (
           <article className="command-card" key={entry.id}>
-            <div className="command-card-header">
-              <h4>{entry.title}</h4>
-              <div className="command-card-actions">
+            <pre className="command-body">{entry.body}</pre>
+            <div className="command-meta">
+              {entry.annotation && <span className="command-annotation">{entry.annotation}</span>}
+              {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
+              <span className="command-meta-actions">
                 <button className="ghost" onClick={() => copy(entry)}>Copy</button>
                 <button className="ghost" onClick={() => remove(entry)}>Delete</button>
-              </div>
+              </span>
             </div>
-            {entry.annotation && <p className="command-annotation">{entry.annotation}</p>}
-            <pre className="command-body">{entry.body}</pre>
-            {entry.tags.length > 0 && (
-              <footer>
-                {entry.tags.map((tag) => <span key={tag}>#{tag}</span>)}
-              </footer>
-            )}
           </article>
         ))}
       </div>
