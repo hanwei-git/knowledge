@@ -115,6 +115,66 @@ function inferNoteTags(body: string, annotation: string, existingTags: string[])
   return unique([...inlineTags, ...reusedTags]).slice(0, 6);
 }
 
+const LIST_LINE_PATTERN = /^(\d+[.)]|[-*])\s+(.*)$/;
+
+/**
+ * One-click cleanup for a note's raw layout — not a markdown formatter,
+ * just whitespace/structure normalization: flush-left alignment for plain
+ * paragraph lines, list nesting snapped to a consistent 2-spaces-per-level
+ * indent (based on each line's indent relative to the list line before
+ * it, so ragged/tab-mixed indentation still nests correctly), and exactly
+ * one blank line as a section break between a list block and the
+ * paragraph text before/after it, with any run of blank lines elsewhere
+ * collapsed to one. Leading/trailing blank lines are trimmed.
+ */
+export function formatNoteBody(raw: string): string {
+  const output: string[] = [];
+  const indentStack: number[] = [];
+  let pendingBlank = false;
+  let sawContent = false;
+  let prevWasList = false;
+
+  for (const rawLine of raw.split("\n")) {
+    const line = rawLine.replace(/\s+$/, "");
+    if (!line.trim()) {
+      if (sawContent) {
+        pendingBlank = true;
+      }
+      continue;
+    }
+
+    const leadingWidth = line.match(/^\s*/)![0].length;
+    const content = line.slice(leadingWidth);
+    const listMatch = content.match(LIST_LINE_PATTERN);
+
+    if (listMatch) {
+      while (indentStack.length && leadingWidth < indentStack[indentStack.length - 1]) {
+        indentStack.pop();
+      }
+      if (!indentStack.length || leadingWidth > indentStack[indentStack.length - 1]) {
+        indentStack.push(leadingWidth);
+      }
+      if (pendingBlank || (sawContent && !prevWasList)) {
+        output.push("");
+      }
+      output.push(`${"  ".repeat(indentStack.length - 1)}${listMatch[1]} ${listMatch[2]}`);
+      prevWasList = true;
+    } else {
+      indentStack.length = 0;
+      if (pendingBlank || (sawContent && prevWasList)) {
+        output.push("");
+      }
+      output.push(content);
+      prevWasList = false;
+    }
+
+    pendingBlank = false;
+    sawContent = true;
+  }
+
+  return output.join("\n");
+}
+
 export function inferTitle(body: string): string {
   const line = body.split("\n").find(Boolean);
   if (!line) {
