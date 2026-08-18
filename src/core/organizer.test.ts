@@ -72,3 +72,29 @@ test("organizeDrafts returns a single draft for a single command regardless of s
   assert.equal(combined.length, 1);
   assert.deepEqual(split[0], combined[0]);
 });
+
+test("a combined multi-command draft keeps per-line comments inline instead of stripping them", () => {
+  const result = organizeDraft({ body: "git fetch\n# force push\ngit push --force", tags: [] });
+
+  assert.equal(result.body, "git fetch\n# force push\ngit push --force");
+});
+
+test("a combined multi-command draft extracts only a leading overview comment as the annotation", () => {
+  const result = organizeDraft({ body: "# weekly cleanup routine\ngit fetch\n# force push\ngit push --force", tags: [] });
+
+  assert.equal(result.annotation, "weekly cleanup routine");
+  assert.equal(result.body, "git fetch\n# force push\ngit push --force");
+});
+
+test("a combined multi-command draft with no leading overview summarizes from the per-line comments instead", () => {
+  const result = organizeDraft({ body: "git fetch\n# force push\ngit push --force", tags: [] });
+
+  assert.equal(result.annotation, "force push");
+});
+
+test("a combined multi-command draft falls back to the curated guess when there are no comments anywhere", () => {
+  const result = organizeDraft({ body: "git status\ngit push --force", tags: [] });
+
+  assert.equal(result.annotation, "查看 Git 工作区和暂存区状态\n强制推送，会覆盖远程分支历史，谨慎使用");
+  assert.equal(result.body, "git status\ngit push --force");
+});

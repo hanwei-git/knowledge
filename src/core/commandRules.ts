@@ -169,6 +169,49 @@ export function extractToolTags(body: string): string[] {
   return [...tools];
 }
 
+export interface LeadingOverviewExtraction {
+  body: string;
+  overview: string;
+}
+
+/**
+ * For a multi-command paste that's being kept as ONE combined entry (not
+ * split into separate ones): pulls out only a leading "overview" comment
+ * block — full-line comments before the first actual command — as a
+ * top-level summary. Any comments after that point stay embedded in the
+ * body untouched, so the saved command block still reads the way the user
+ * wrote it (each command visible next to its own inline comment) rather
+ * than having every comment stripped out to a single detached annotation.
+ */
+export function extractLeadingOverview(raw: string): LeadingOverviewExtraction {
+  const lines = raw.split("\n");
+  const overviewLines: string[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) {
+      index++;
+      continue;
+    }
+    if (line.startsWith("#!")) {
+      break;
+    }
+    const comment = matchFullLineComment(line);
+    if (comment === null) {
+      break;
+    }
+    overviewLines.push(comment);
+    index++;
+  }
+
+  const remainder = lines.slice(index).join("\n").trim();
+  return {
+    overview: overviewLines.join("\n"),
+    body: remainder || raw.trim()
+  };
+}
+
 export function annotateCommand(body: string): string {
   const explanations: string[] = [];
   for (const line of nonEmptyLines(body)) {
