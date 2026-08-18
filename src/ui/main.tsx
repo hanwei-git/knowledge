@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createEntry, deleteEntry, getSummary, subscribeToChanges, updateEntry } from "./api.js";
 import { normalizeCommandBody } from "../core/commandRules.js";
-import { organizeDrafts } from "../core/organizer.js";
-import { findSecrets } from "../core/secretScanner.js";
+import { inferTitle, organizeDrafts } from "../core/organizer.js";
+import { findSecrets, redactSecrets } from "../core/secretScanner.js";
 import type { Entry, Summary } from "../core/types.js";
 import "./styles.css";
 
@@ -93,9 +93,11 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   const single = drafts.length === 1;
   const draft = drafts[0];
   const body = single ? bodyOverride ?? draft.body : draft.body;
+  const title = single ? inferTitle(body) : draft.title;
   const tags = single ? tagsOverride ?? draft.tags : draft.tags;
   const annotation = single ? annotationOverride ?? draft.annotation : draft.annotation;
   const duplicateOf = single ? findDuplicate(body, summary.entries) : undefined;
+  const secretFindings = single ? findSecrets(`${title}\n${body}\n${annotation}`) : [];
 
   function resetCapture() {
     setRawInput("");
@@ -104,6 +106,11 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
     setTagDraft("");
     setAnnotationOverride(null);
     setError("");
+  }
+
+  function redactSensitiveInfo() {
+    setBodyOverride(redactSecrets(body));
+    setAnnotationOverride(redactSecrets(annotation));
   }
 
   async function save() {
@@ -118,7 +125,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
     setSaving(true);
     try {
       const toSave = single
-        ? [{ title: draft.title, body, annotation }]
+        ? [{ title, body, annotation }]
         : drafts.map((item) => ({ title: item.title, body: item.body, annotation: item.annotation }));
 
       const concerns: string[] = [];
@@ -143,7 +150,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
         return;
       }
       if (single) {
-        await createEntry({ title: draft.title, body, annotation, tags });
+        await createEntry({ title, body, annotation, tags });
         setNotice("Command saved");
       } else {
         for (const item of drafts) {
@@ -192,6 +199,12 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
       {single ? (
         <div className="panel detail-editor">
           {duplicateOf && <p className="duplicate-warning">Looks like a duplicate of "{duplicateOf.title}"</p>}
+          {secretFindings.length > 0 && (
+            <p className="secret-warning">
+              May contain sensitive information ({secretFindings.join(", ")})
+              <button type="button" className="ghost" onClick={redactSensitiveInfo}>Redact sensitive info</button>
+            </p>
+          )}
           <textarea
             className="annotation-input"
             value={annotation}
@@ -447,22 +460,34 @@ function CommandCard({ entry, onSaved, setNotice }: {
           {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
         </div>
         {editing ? (
-          <textarea
-            autoFocus
-            className="command-annotation-edit"
-            value={annotationDraft}
-            onChange={(event) => setAnnotationDraft(event.target.value)}
-            onBlur={() => saveAnnotation(true)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                saveAnnotation(false);
-              } else if (event.key === "Escape") {
-                setAnnotationDraft(entry.annotation);
-                setEditing(false);
-              }
-            }}
-          />
+          <>
+            <textarea
+              autoFocus
+              className="command-annotation-edit"
+              value={annotationDraft}
+              onChange={(event) => setAnnotationDraft(event.target.value)}
+              onBlur={() => saveAnnotation(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  saveAnnotation(false);
+                } else if (event.key === "Escape") {
+                  setAnnotationDraft(entry.annotation);
+                  setEditing(false);
+                }
+              }}
+            />
+            {findSecrets(annotationDraft).length > 0 && (
+              <button
+                type="button"
+                className="ghost redact-inline-button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setAnnotationDraft(redactSecrets(annotationDraft))}
+              >
+                Redact
+              </button>
+            )}
+          </>
         ) : (
           <span
             className={entry.annotation ? "command-annotation editable" : "command-annotation editable empty"}

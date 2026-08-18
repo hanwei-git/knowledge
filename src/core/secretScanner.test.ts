@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findSecrets } from "./secretScanner.js";
+import { findSecrets, redactSecrets } from "./secretScanner.js";
 
 test("detects a private key block", () => {
   const findings = findSecrets("-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n-----END RSA PRIVATE KEY-----");
@@ -54,4 +54,41 @@ test("returns no findings for ordinary commands", () => {
   assert.deepEqual(findSecrets("git status"), []);
   assert.deepEqual(findSecrets("docker run -p 8080:80 nginx"), []);
   assert.deepEqual(findSecrets("kubectl get secrets"), []);
+});
+
+test("redactSecrets masks a database CLI inline password but keeps the rest of the command", () => {
+  const redacted = redactSecrets("mysql -u root -pMySecretPass123 -e 'SHOW DATABASES;'");
+  assert.equal(redacted, "mysql -u root -p[REDACTED] -e 'SHOW DATABASES;'");
+  assert.ok(!redacted.includes("MySecretPass123"));
+});
+
+test("redactSecrets masks only the value of an inline password assignment, keeping the key name", () => {
+  assert.equal(redactSecrets("export DB_PASSWORD=hunter2"), "export DB_PASSWORD=[REDACTED]");
+});
+
+test("redactSecrets removes the username/password from a URL entirely, keeping the scheme, host, and path", () => {
+  const redacted = redactSecrets("git remote set-url origin http://deploy_bot@10.20.30.40/org/repo.git");
+  assert.equal(redacted, "git remote set-url origin http://[REDACTED_IP]/org/repo.git");
+  assert.deepEqual(findSecrets(redacted), []);
+});
+
+test("redactSecrets masks an entire private key block", () => {
+  const redacted = redactSecrets("-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\nmore key data\n-----END RSA PRIVATE KEY-----");
+  assert.equal(redacted, "[REDACTED PRIVATE KEY]");
+});
+
+test("redactSecrets masks a bare API key with a generic placeholder", () => {
+  assert.equal(redactSecrets("AKIAABCDEFGHIJKLMNOP"), "[REDACTED]");
+});
+
+test("redactSecrets leaves ordinary commands completely unchanged", () => {
+  assert.equal(redactSecrets("git status"), "git status");
+  assert.equal(redactSecrets("docker run -p 8080:80 nginx"), "docker run -p 8080:80 nginx");
+});
+
+test("redactSecrets applied to a URL with a username, internal IP, and internal path clears every finding but keeps the path", () => {
+  const original = "git remote set-url origin http://deploy_bot@10.20.30.40/internal-tools/backend/service.git";
+  const redacted = redactSecrets(original);
+  assert.deepEqual(findSecrets(redacted), []);
+  assert.ok(redacted.includes("internal-tools/backend/service.git"));
 });

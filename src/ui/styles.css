@@ -417,6 +417,31 @@ textarea {
   font-size: 12px;
 }
 
+.secret-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  border-radius: 6px;
+  background: #ffe2d5;
+  color: #7b2714;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.secret-warning button {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.redact-inline-button {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .command-annotation.empty {
   color: #9aa79c;
   font-style: italic;

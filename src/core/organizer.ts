@@ -79,7 +79,7 @@ function buildCombinedDraft(raw: string, existingTags: string[], entries: Entry[
   };
 }
 
-function inferTitle(body: string): string {
+export function inferTitle(body: string): string {
   const line = body.split("\n").find(Boolean);
   if (!line) {
     return "Untitled command";
