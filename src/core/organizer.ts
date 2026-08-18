@@ -1,8 +1,8 @@
-import type { EntryStatus, EntryType, ProjectWiki } from "./types.js";
+import type { EntryStatus, EntryType } from "./types.js";
 
 export interface OrganizeDraftInput {
   body: string;
-  projects: ProjectWiki[];
+  projects: string[];
   tags: string[];
 }
 
@@ -18,7 +18,7 @@ export interface OrganizedDraft {
   reason: string;
 }
 
-const TYPE_KEYWORDS: Record<Exclude<EntryType, "project">, string[]> = {
+const TYPE_KEYWORDS: Record<EntryType, string[]> = {
   troubleshooting: ["error", "exception", "failed", "failure", "timeout", "root cause", "fix", "resolved", "symptom", "cause", "verification"],
   decision: ["decision", "decide", "option", "trade-off", "tradeoff", "chosen", "alternative", "consequence"],
   runbook: ["steps", "procedure", "rollback", "checklist", "verify", "command sequence"],
@@ -63,22 +63,22 @@ export function organizeDraft(input: OrganizeDraftInput): OrganizedDraft {
   };
 }
 
-function inferProject(body: string, projects: ProjectWiki[]): string {
+function inferProject(body: string, projects: string[]): string {
   const normalizedBody = body.toLowerCase();
   for (const project of projects) {
-    if (containsPhrase(normalizedBody, project.slug) || containsPhrase(normalizedBody, project.title)) {
-      return project.slug;
+    if (containsPhrase(normalizedBody, project)) {
+      return project;
     }
   }
   return "";
 }
 
-function inferType(body: string): Exclude<EntryType, "project"> {
+function inferType(body: string): EntryType {
   const normalizedBody = body.toLowerCase();
   const scores = Object.entries(TYPE_KEYWORDS)
     .filter(([type]) => type !== "note")
     .map(([type, keywords]) => ({
-      type: type as Exclude<EntryType, "project" | "note">,
+      type: type as Exclude<EntryType, "note">,
       score: keywords.reduce((count, keyword) => count + (normalizedBody.includes(keyword) ? 1 : 0), 0)
     }));
   scores.sort((a, b) => b.score - a.score);

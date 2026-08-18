@@ -1,41 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { organizeDraft } from "./organizer.js";
-import type { ProjectWiki } from "./types.js";
 
-const projects: ProjectWiki[] = [
-  {
-    slug: "ap2",
-    title: "AP2 Platform",
-    summary: "Application platform knowledge.",
-    groups: {} as ProjectWiki["groups"],
-    recent: []
-  },
-  {
-    slug: "billing-system",
-    title: "Billing System",
-    summary: "Payment and invoice knowledge.",
-    groups: {} as ProjectWiki["groups"],
-    recent: []
-  }
-];
+const projects = ["ap2", "billing-system"];
 
-test("infers project from existing project title and slug", () => {
-  const byTitle = organizeDraft({
-    body: "AP2 Platform deployment failed during rollout.",
+test("infers project from an existing project value mentioned in the body", () => {
+  const byName = organizeDraft({
+    body: "AP2 deployment failed during rollout.",
     projects,
     tags: []
   });
-  const bySlug = organizeDraft({
+  const lowerCase = organizeDraft({
     body: "ap2 rollback notes after timeout.",
     projects,
     tags: []
   });
 
-  assert.equal(byTitle.project, "ap2");
-  assert.equal(byTitle.saveTarget, "project");
-  assert.equal(byTitle.status, "active");
-  assert.equal(bySlug.project, "ap2");
+  assert.equal(byName.project, "ap2");
+  assert.equal(byName.saveTarget, "project");
+  assert.equal(byName.status, "active");
+  assert.equal(lowerCase.project, "ap2");
 });
 
 test("infers troubleshooting, decision, runbook, reference, and note fallback types", () => {

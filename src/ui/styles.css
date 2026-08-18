@@ -93,9 +93,7 @@ textarea {
 
 .brand small,
 .muted,
-.entry-block small,
-.project-card small,
-.project-button small {
+.entry-block small {
   color: #687568;
 }
 
@@ -110,8 +108,7 @@ textarea {
   text-align: left;
 }
 
-.sidebar nav button.active,
-.project-button.active {
+.sidebar nav button.active {
   background: #173f2f;
   color: #f8fbf4;
 }
@@ -177,19 +174,6 @@ textarea {
   color: #7b2714;
 }
 
-.grid {
-  display: grid;
-  gap: 18px;
-}
-
-.grid.two {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-.project-layout {
-  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
-}
-
 .panel {
   border: 1px solid #cfdbc7;
   border-radius: 8px;
@@ -197,20 +181,8 @@ textarea {
   padding: 18px;
 }
 
-.main-panel {
-  min-height: 72vh;
-}
-
-.panel h2,
-.panel h3,
-.entry-block h4 {
+.panel h2 {
   margin: 0 0 10px;
-}
-
-.compact-form,
-.search-form {
-  display: grid;
-  gap: 10px;
 }
 
 .capture-workspace {
@@ -284,60 +256,33 @@ textarea {
   margin: 0;
 }
 
-.row,
-.archive-controls {
+.row {
   display: grid;
   grid-template-columns: 1fr 180px;
   gap: 10px;
 }
 
 .search-form {
+  display: grid;
   grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(120px, 160px)) auto;
+  gap: 10px;
   margin-bottom: 16px;
 }
 
-.project-stack,
-.entry-list,
-.inbox-list,
-.wiki-groups {
+.entry-list {
   display: grid;
   gap: 12px;
 }
 
-.project-card,
-.entry-block,
-.archive-card {
+.entry-block {
+  position: relative;
   border: 1px solid #d8e2d1;
   border-radius: 8px;
   background: #fbfdf8;
   padding: 14px;
 }
 
-.project-button {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  background: #edf4e7;
-  color: #17201b;
-  text-align: left;
-}
-
-.project-heading {
-  border-bottom: 1px solid #d8e2d1;
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-}
-
-.inline-editor {
-  margin-bottom: 18px;
-}
-
-.inline-editor .compact-form {
-  margin-top: 10px;
-}
-
-.entry-block p,
-.project-card p {
+.entry-block p {
   margin: 0 0 10px;
 }
 
@@ -357,49 +302,22 @@ textarea {
 }
 
 .archive-controls {
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
   margin-top: 12px;
 }
 
-.change-list,
-.log-list {
-  display: grid;
-  gap: 8px;
-  padding: 0;
-  list-style: none;
-}
-
-.change-list li {
-  display: flex;
-  gap: 10px;
-}
-
-.change-list span {
-  display: inline-grid;
-  width: 28px;
-  place-items: center;
-  border-radius: 5px;
-  background: #c6ff47;
-  font-family: "Cascadia Mono", Consolas, monospace;
-}
-
-.diff {
-  max-height: 460px;
-  overflow: auto;
-  border-radius: 8px;
-  background: #162018;
-  color: #dceecf;
-  padding: 14px;
-  white-space: pre-wrap;
+.entry-delete {
+  margin-top: 12px;
 }
 
 @media (max-width: 980px) {
   .app-shell,
-  .grid.two,
-  .project-layout,
   .search-form,
   .archive-controls,
-  .detail-grid {
+  .detail-grid,
+  .row {
     grid-template-columns: 1fr;
   }
 

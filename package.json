@@ -1,36 +1,44 @@
 {
   "name": "engineering-knowledge-wiki",
   "version": "0.1.0",
-  "description": "Local engineering knowledge wiki backed by Markdown files.",
+  "description": "Cloud-synced personal engineering knowledge wiki backed by Cloudflare D1.",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"tsx src/server.ts\" \"vite --host 127.0.0.1\"",
-    "server": "tsx src/server.ts",
+    "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "tsx --test src/**/*.test.ts",
-    "start": "tsx src/server.ts",
+    "test": "tsx --test src/core/organizer.test.ts src/ui/api.test.ts && vitest run",
     "deploy": "npm run build && wrangler deploy",
     "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
     "preview": "npm run build && wrangler dev"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.7.0",
-    "concurrently": "^9.2.1",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "vite": "^6.4.3",
-    "zod": "^3.24.1"
+    "vite": "^6.4.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.43.0",
+    "@cloudflare/vitest-pool-workers": "^0.21.3",
+    "@cloudflare/workers-types": "^5.20260818.1",
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "vitest": "^4.1.10",
     "wrangler": "^4.107.0"
   },
   "engines": {
     "node": ">=22.11"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "esbuild@0.27.7": true,
+    "esbuild@0.25.12": true,
+    "workerd@1.20260811.1": true,
+    "workerd@1.20260706.1": true,
+    "sharp@0.35.2": true,
+    "sharp@0.34.5": true
   }
 }
