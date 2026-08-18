@@ -312,6 +312,81 @@ textarea {
   margin-top: 12px;
 }
 
+.annotation-input {
+  min-height: 64px;
+}
+
+.command-filter {
+  margin-bottom: 12px;
+}
+
+.tag-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tag-filter-row button.active {
+  background: #173f2f;
+  color: #f8fbf4;
+}
+
+.command-list {
+  display: grid;
+  gap: 12px;
+}
+
+.command-card {
+  border: 1px solid #d8e2d1;
+  border-radius: 8px;
+  background: #fbfdf8;
+  padding: 14px;
+}
+
+.command-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.command-card-header h4 {
+  margin: 0;
+}
+
+.command-annotation {
+  margin: 0 0 8px;
+  color: #55705e;
+}
+
+.command-body {
+  margin: 0 0 8px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: #162018;
+  color: #dceecf;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+}
+
+.command-card footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.command-card footer span {
+  border-radius: 999px;
+  background: #e7efdf;
+  color: #334936;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
 @media (max-width: 980px) {
   .app-shell,
   .search-form,

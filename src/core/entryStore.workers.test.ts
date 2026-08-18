@@ -15,7 +15,8 @@ describe("entryStore", () => {
       tags: ["redis", "incident"],
       status: "active",
       source: "",
-      body: "Connections leaked under load."
+      body: "Connections leaked under load.",
+      annotation: ""
     });
 
     expect(created.id).toBeTruthy();
@@ -35,7 +36,8 @@ describe("entryStore", () => {
       tags: [],
       status: "draft",
       source: "",
-      body: "Rough thought."
+      body: "Rough thought.",
+      annotation: ""
     });
 
     const updated = await updateEntry(env.DB, created.id, { project: "ap2", status: "active" });
@@ -52,7 +54,8 @@ describe("entryStore", () => {
       tags: [],
       status: "draft",
       source: "",
-      body: "Delete me."
+      body: "Delete me.",
+      annotation: ""
     });
 
     await deleteEntry(env.DB, created.id);
@@ -68,7 +71,8 @@ describe("entryStore", () => {
       tags: ["kubernetes"],
       status: "active",
       source: "",
-      body: "Steps to roll out safely."
+      body: "Steps to roll out safely.",
+      annotation: ""
     });
     await createEntry(env.DB, {
       title: "Unrelated note",
@@ -77,11 +81,33 @@ describe("entryStore", () => {
       tags: [],
       status: "draft",
       source: "",
-      body: "Nothing to see here."
+      body: "Nothing to see here.",
+      annotation: ""
     });
 
     const results = await searchEntries(env.DB, { query: "rollout", project: "ap2", type: "runbook", tag: "kubernetes", status: "active" });
     expect(results).toHaveLength(1);
     expect(results[0].title).toBe("Kubernetes rollout runbook");
+  });
+
+  it("round-trips a command entry with an annotation and the command type", async () => {
+    const created = await createEntry(env.DB, {
+      title: "Force push",
+      type: "command",
+      project: "",
+      tags: ["git"],
+      status: "draft",
+      source: "",
+      body: "git push --force",
+      annotation: "强制推送，会覆盖远程分支历史，谨慎使用"
+    });
+
+    expect(created.type).toBe("command");
+    expect(created.annotation).toBe("强制推送，会覆盖远程分支历史，谨慎使用");
+
+    const results = await searchEntries(env.DB, { type: "command" });
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(created.id);
+    expect(results[0].annotation).toBe("强制推送，会覆盖远程分支历史，谨慎使用");
   });
 });

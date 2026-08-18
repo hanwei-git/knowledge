@@ -1,4 +1,4 @@
-export type EntryType = "troubleshooting" | "decision" | "reference" | "runbook" | "note";
+export type EntryType = "command" | "troubleshooting" | "decision" | "reference" | "runbook" | "note";
 export type EntryStatus = "draft" | "active" | "archived";
 
 export interface Entry {
@@ -10,6 +10,7 @@ export interface Entry {
   status: EntryStatus;
   source: string;
   body: string;
+  annotation: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +31,7 @@ export interface CreateEntryInput {
   status: EntryStatus;
   source: string;
   body: string;
+  annotation: string;
 }
 
 export interface Summary {

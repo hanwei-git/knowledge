@@ -1,3 +1,4 @@
+import { annotateCommand, extractToolTags, looksLikeCommandBlock } from "./commandRules.js";
 import type { EntryStatus, EntryType } from "./types.js";
 
 export interface OrganizeDraftInput {
@@ -14,11 +15,12 @@ export interface OrganizedDraft {
   status: EntryStatus;
   source: string;
   body: string;
+  annotation: string;
   saveTarget: "project" | "inbox";
   reason: string;
 }
 
-const TYPE_KEYWORDS: Record<EntryType, string[]> = {
+const TYPE_KEYWORDS: Record<Exclude<EntryType, "command">, string[]> = {
   troubleshooting: ["error", "exception", "failed", "failure", "timeout", "root cause", "fix", "resolved", "symptom", "cause", "verification"],
   decision: ["decision", "decide", "option", "trade-off", "tradeoff", "chosen", "alternative", "consequence"],
   runbook: ["steps", "procedure", "rollback", "checklist", "verify", "command sequence"],
@@ -54,10 +56,11 @@ export function organizeDraft(input: OrganizeDraftInput): OrganizedDraft {
     title: inferTitle(body),
     type,
     project,
-    tags: inferTags(body, input.tags),
+    tags: inferTags(body, input.tags, type),
     status: saveTarget === "project" ? "active" : "draft",
     source: inferSource(body),
     body,
+    annotation: type === "command" ? annotateCommand(body) : "",
     saveTarget,
     reason: project ? `Matched project ${project}.` : "No project match; saved as inbox draft."
   };
@@ -74,25 +77,29 @@ function inferProject(body: string, projects: string[]): string {
 }
 
 function inferType(body: string): EntryType {
+  if (looksLikeCommandBlock(body)) {
+    return "command";
+  }
   const normalizedBody = body.toLowerCase();
   const scores = Object.entries(TYPE_KEYWORDS)
     .filter(([type]) => type !== "note")
     .map(([type, keywords]) => ({
-      type: type as Exclude<EntryType, "note">,
+      type: type as Exclude<EntryType, "command" | "note">,
       score: keywords.reduce((count, keyword) => count + (normalizedBody.includes(keyword) ? 1 : 0), 0)
     }));
   scores.sort((a, b) => b.score - a.score);
   return scores[0]?.score ? scores[0].type : "note";
 }
 
-function inferTags(body: string, existingTags: string[]): string[] {
+function inferTags(body: string, existingTags: string[], type: EntryType): string[] {
   const normalizedBody = body.toLowerCase();
   const inlineTags = [...body.matchAll(/#([\p{L}\p{N}_-]+)/gu)].map((match) => cleanTag(match[1]));
   const keywordTags = TECH_KEYWORDS.filter((keyword) => containsPhrase(normalizedBody, keyword));
   const reusedTags = existingTags
     .map(cleanTag)
     .filter((tag) => tag && containsPhrase(normalizedBody, tag));
-  return unique([...inlineTags, ...keywordTags, ...reusedTags]).slice(0, 6);
+  const toolTags = type === "command" ? extractToolTags(body) : [];
+  return unique([...inlineTags, ...toolTags, ...keywordTags, ...reusedTags]).slice(0, 6);
 }
 
 function inferTitle(body: string): string {

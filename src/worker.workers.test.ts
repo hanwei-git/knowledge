@@ -9,7 +9,7 @@ describe("worker API", () => {
   it("creates, reads, updates, and deletes an entry", async () => {
     const createResponse = await SELF.fetch("https://example.com/api/entries", {
       method: "POST",
-      body: JSON.stringify({ title: "Note", type: "note", project: "", tags: [], status: "draft", source: "", body: "Body" })
+      body: JSON.stringify({ title: "Note", type: "note", project: "", tags: [], status: "draft", source: "", body: "Body", annotation: "" })
     });
     expect(createResponse.status).toBe(201);
     const created = await createResponse.json() as { id: string };
@@ -33,7 +33,7 @@ describe("worker API", () => {
   it("organizes a draft using stored projects and tags", async () => {
     await SELF.fetch("https://example.com/api/entries", {
       method: "POST",
-      body: JSON.stringify({ title: "AP2 home", type: "note", project: "ap2", tags: ["redis"], status: "active", source: "", body: "x" })
+      body: JSON.stringify({ title: "AP2 home", type: "note", project: "ap2", tags: ["redis"], status: "active", source: "", body: "x", annotation: "" })
     });
 
     const response = await SELF.fetch("https://example.com/api/organize", {
@@ -60,10 +60,30 @@ describe("worker API", () => {
 
     await SELF.fetch("https://example.com/api/entries", {
       method: "POST",
-      body: JSON.stringify({ title: "Note", type: "note", project: "", tags: [], status: "draft", source: "", body: "Body" })
+      body: JSON.stringify({ title: "Note", type: "note", project: "", tags: [], status: "draft", source: "", body: "Body", annotation: "" })
     });
 
     const payload = JSON.parse(await message) as { type: string };
     expect(payload.type).toBe("entries-changed");
+  });
+
+  it("organizes a command as type command with an annotation, and saves it that way", async () => {
+    const organizeResponse = await SELF.fetch("https://example.com/api/organize", {
+      method: "POST",
+      body: JSON.stringify({ body: "git push --force" })
+    });
+    const organized = await organizeResponse.json() as { type: string; annotation: string; tags: string[] };
+    expect(organized.type).toBe("command");
+    expect(organized.annotation).toBe("强制推送，会覆盖远程分支历史，谨慎使用");
+    expect(organized.tags).toContain("git");
+
+    const createResponse = await SELF.fetch("https://example.com/api/entries", {
+      method: "POST",
+      body: JSON.stringify({ ...organized, project: "", status: "draft", source: "", title: "Force push", body: "git push --force" })
+    });
+    expect(createResponse.status).toBe(201);
+    const created = await createResponse.json() as { type: string; annotation: string };
+    expect(created.type).toBe("command");
+    expect(created.annotation).toBe("强制推送，会覆盖远程分支历史，谨慎使用");
   });
 });

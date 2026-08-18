@@ -1,0 +1,111 @@
+const TOOL_NAMES = [
+  "git", "docker", "docker-compose", "npm", "pnpm", "yarn", "kubectl", "curl", "wget",
+  "ssh", "ssh-keygen", "scp", "rsync", "tar", "grep", "find", "sed", "awk", "chmod", "chown",
+  "systemctl", "ps", "kill", "ls", "cd", "rm", "mv", "cp", "ln", "df", "du", "top",
+  "journalctl", "apt", "apt-get", "brew", "pip", "pip3", "cargo", "go", "make", "jq"
+];
+
+const TOOL_NAME_SET = new Set(TOOL_NAMES);
+
+interface AnnotationRule {
+  pattern: RegExp;
+  describe: string;
+}
+
+const ANNOTATION_RULES: AnnotationRule[] = [
+  { pattern: /^git\s+status\b/, describe: "查看 Git 工作区和暂存区状态" },
+  { pattern: /^git\s+commit\b.*(-{1,2}amend)\b/, describe: "修改最近一次提交，不新建提交记录" },
+  { pattern: /^git\s+push\b.*(-f\b|--force\b)/, describe: "强制推送，会覆盖远程分支历史，谨慎使用" },
+  { pattern: /^git\s+push\b/, describe: "推送本地提交到远程仓库" },
+  { pattern: /^git\s+pull\b/, describe: "拉取并合并远程分支的最新提交" },
+  { pattern: /^git\s+log\b.*--oneline/, describe: "以单行精简格式查看提交历史" },
+  { pattern: /^git\s+log\b/, describe: "查看提交历史" },
+  { pattern: /^git\s+checkout\s+-b\b/, describe: "创建并切换到一个新分支" },
+  { pattern: /^git\s+stash\b/, describe: "暂存当前未提交的改动" },
+  { pattern: /^git\s+rebase\b.*-i\b/, describe: "交互式变基，可修改/合并/重排提交" },
+  { pattern: /^docker\s+system\s+prune\b/, describe: "清理未使用的 Docker 容器、网络和镜像" },
+  { pattern: /^docker\s+ps\b/, describe: "列出正在运行的容器" },
+  { pattern: /^docker\s+build\b/, describe: "根据 Dockerfile 构建镜像" },
+  { pattern: /^docker\s+exec\b.*-it\b/, describe: "在运行中的容器内打开一个交互式终端" },
+  { pattern: /^docker[\s-]compose\s+up\b/, describe: "启动 docker-compose 定义的所有服务" },
+  { pattern: /^kubectl\s+get\s+pods\b/, describe: "列出当前命名空间下的 Pod" },
+  { pattern: /^kubectl\s+logs\b/, describe: "查看 Pod 的日志输出" },
+  { pattern: /^kubectl\s+apply\s+-f\b/, describe: "应用一个 YAML 配置文件到集群" },
+  { pattern: /^kubectl\s+rollout\s+restart\b/, describe: "滚动重启一个 Deployment" },
+  { pattern: /^npm\s+install\b/, describe: "安装 package.json 中声明的依赖" },
+  { pattern: /^npm\s+run\b/, describe: "运行 package.json 中定义的脚本" },
+  { pattern: /^chmod\s+\+x\b/, describe: "为文件添加可执行权限" },
+  { pattern: /^chmod\s+-R\b/, describe: "递归修改目录及其内容的权限" },
+  { pattern: /^rm\s+-rf\b/, describe: "强制递归删除文件或目录，不可恢复，谨慎使用" },
+  { pattern: /^tar\s+-?xzf\b/, describe: "解压一个 .tar.gz 归档文件" },
+  { pattern: /^tar\s+-?czf\b/, describe: "将文件打包压缩为 .tar.gz" },
+  { pattern: /^ssh-keygen\b/, describe: "生成一对新的 SSH 密钥" },
+  { pattern: /^scp\b/, describe: "通过 SSH 在本地和远程主机之间复制文件" },
+  { pattern: /^rsync\b.*-a/, describe: "增量同步文件/目录，保留权限和时间戳" },
+  { pattern: /^curl\b.*-o\b/, describe: "下载 URL 内容并保存为文件" },
+  { pattern: /^systemctl\s+restart\b/, describe: "重启一个系统服务" },
+  { pattern: /^systemctl\s+status\b/, describe: "查看一个系统服务的运行状态" }
+];
+
+export function looksLikeCommandBlock(body: string): boolean {
+  const lines = nonEmptyLines(body);
+  if (!lines.length) {
+    return false;
+  }
+  let hasCommandLine = false;
+  for (const line of lines) {
+    if (line.startsWith("#")) {
+      continue;
+    }
+    if (!commandTool(line)) {
+      return false;
+    }
+    hasCommandLine = true;
+  }
+  return hasCommandLine;
+}
+
+export function extractToolTags(body: string): string[] {
+  const tools = new Set<string>();
+  for (const line of nonEmptyLines(body)) {
+    if (line.startsWith("#")) {
+      continue;
+    }
+    const tool = commandTool(line);
+    if (tool) {
+      tools.add(tool);
+    }
+  }
+  return [...tools];
+}
+
+export function annotateCommand(body: string): string {
+  const explanations: string[] = [];
+  for (const line of nonEmptyLines(body)) {
+    if (line.startsWith("#")) {
+      continue;
+    }
+    const rule = ANNOTATION_RULES.find((candidate) => candidate.pattern.test(line));
+    if (rule) {
+      explanations.push(rule.describe);
+    }
+  }
+  return explanations.join("\n");
+}
+
+function nonEmptyLines(body: string): string[] {
+  return body.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
+function commandTool(line: string): string | null {
+  const tokens = line.split(/\s+/).filter(Boolean);
+  let index = 0;
+  if (tokens[index] === "sudo") {
+    index++;
+  }
+  while (tokens[index] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index])) {
+    index++;
+  }
+  const candidate = tokens[index];
+  return candidate && TOOL_NAME_SET.has(candidate) ? candidate : null;
+}

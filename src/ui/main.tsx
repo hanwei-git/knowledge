@@ -5,9 +5,9 @@ import type { OrganizedDraft } from "../core/organizer.js";
 import type { CreateEntryInput, Entry, EntryStatus, EntryType, SearchFilters, Summary } from "../core/types.js";
 import "./styles.css";
 
-type View = "capture" | "browse";
+type View = "capture" | "browse" | "commands";
 
-const entryTypes: EntryType[] = ["troubleshooting", "decision", "reference", "runbook", "note"];
+const entryTypes: EntryType[] = ["command", "troubleshooting", "decision", "reference", "runbook", "note"];
 const statuses: EntryStatus[] = ["draft", "active", "archived"];
 const emptySummary: Summary = { entries: [], projects: [], tags: [] };
 
@@ -42,7 +42,7 @@ function App() {
           </div>
         </div>
         <nav>
-          {(["capture", "browse"] as View[]).map((item) => (
+          {(["capture", "browse", "commands"] as View[]).map((item) => (
             <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}>
               {labelView(item)}
             </button>
@@ -67,6 +67,7 @@ function App() {
 
         {view === "capture" && <CaptureWorkspace summary={summary} onSaved={refresh} setNotice={setNotice} />}
         {view === "browse" && <Browse revision={revision} projects={summary.projects} tags={summary.tags} onSaved={refresh} setNotice={setNotice} />}
+        {view === "commands" && <Commands revision={revision} setNotice={setNotice} />}
       </section>
     </main>
   );
@@ -90,7 +91,8 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
       type: "note",
       project: "",
       status: "draft",
-      source: ""
+      source: "",
+      annotation: ""
     }, "Saved to inbox for review");
   }
 
@@ -106,7 +108,8 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
       type: organized.type,
       project: organized.project,
       status: organized.status,
-      source: organized.source
+      source: organized.source,
+      annotation: organized.annotation
     }, organized.project ? `Saved to ${organized.project}` : "Saved to inbox; project needs review");
   }
 
@@ -173,6 +176,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
     source: "",
     title: titleFromBody(body),
     body,
+    annotation: "",
     saveTarget: "inbox" as const,
     reason: body.trim() ? "Ready to organize on save." : "Waiting for input."
   };
@@ -229,6 +233,14 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
             <input value={draft.tags.join(", ")} onChange={(event) => updateDraft({ tags: splitTags(event.target.value) })} placeholder="tags" />
           </div>
           <input value={draft.source} onChange={(event) => updateDraft({ source: event.target.value })} placeholder="source URL or file path" />
+          {(draft.type === "command" || draft.annotation) && (
+            <textarea
+              className="annotation-input"
+              value={draft.annotation}
+              onChange={(event) => updateDraft({ annotation: event.target.value })}
+              placeholder="What does this command do? (auto-filled when recognized, editable otherwise)"
+            />
+          )}
           <div className="detail-actions">
             <button disabled={saving}>Save with details</button>
             <button className="ghost" type="button" onClick={() => setDetailsOpen(false)}>Close details</button>
@@ -307,6 +319,73 @@ function Browse({ revision, projects, tags, onSaved, setNotice }: {
       <datalist id="known-projects">
         {projects.map((project) => <option key={project} value={project} />)}
       </datalist>
+    </section>
+  );
+}
+
+function Commands({ revision, setNotice }: { revision: number; setNotice: (value: string) => void }) {
+  const [commands, setCommands] = useState<Entry[]>([]);
+  const [query, setQuery] = useState("");
+  const [activeTag, setActiveTag] = useState("");
+
+  useEffect(() => {
+    searchEntries({ type: "command" })
+      .then(setCommands)
+      .catch((error) => setNotice(error instanceof Error ? error.message : String(error)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revision]);
+
+  const tags = [...new Set(commands.flatMap((entry) => entry.tags))].sort();
+
+  const filtered = commands.filter((entry) => {
+    const haystack = `${entry.title}\n${entry.body}`.toLowerCase();
+    const matchesQuery = !query.trim() || haystack.includes(query.trim().toLowerCase());
+    const matchesTag = !activeTag || entry.tags.includes(activeTag);
+    return matchesQuery && matchesTag;
+  });
+
+  async function copy(entry: Entry) {
+    try {
+      await navigator.clipboard.writeText(entry.body);
+      setNotice(`Copied "${entry.title}"`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <section className="panel">
+      <input
+        className="command-filter"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Quick filter commands..."
+      />
+      {tags.length > 0 && (
+        <div className="tag-filter-row">
+          <button className={activeTag === "" ? "ghost active" : "ghost"} onClick={() => setActiveTag("")}>All</button>
+          {tags.map((tag) => (
+            <button key={tag} className={activeTag === tag ? "ghost active" : "ghost"} onClick={() => setActiveTag(tag)}>#{tag}</button>
+          ))}
+        </div>
+      )}
+      {!filtered.length && <p className="muted">No commands saved yet — capture one and it will show up here.</p>}
+      <div className="command-list">
+        {filtered.map((entry) => (
+          <article className="command-card" key={entry.id}>
+            <div className="command-card-header">
+              <h4>{entry.title}</h4>
+              <button className="ghost" onClick={() => copy(entry)}>Copy</button>
+            </div>
+            {entry.annotation && <p className="command-annotation">{entry.annotation}</p>}
+            <pre className="command-body">{entry.body}</pre>
+            <footer>
+              {entry.project && <span>{entry.project}</span>}
+              {entry.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+            </footer>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -402,7 +481,7 @@ function splitTags(value: string): string[] {
 }
 
 function labelView(view: View): string {
-  return { capture: "Capture", browse: "Browse" }[view];
+  return { capture: "Capture", browse: "Browse", commands: "Commands" }[view];
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

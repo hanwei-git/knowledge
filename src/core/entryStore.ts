@@ -9,6 +9,7 @@ interface EntryRow {
   tags: string;
   source: string;
   body: string;
+  annotation: string;
   created_at: string;
   updated_at: string;
 }
@@ -17,8 +18,8 @@ export async function createEntry(db: D1Database, input: CreateEntryInput): Prom
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   await db.prepare(
-    `INSERT INTO entries (id, title, type, project, status, tags, source, body, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`
+    `INSERT INTO entries (id, title, type, project, status, tags, source, body, annotation, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`
   ).bind(
     id,
     input.title.trim(),
@@ -28,6 +29,7 @@ export async function createEntry(db: D1Database, input: CreateEntryInput): Prom
     JSON.stringify(uniqueClean(input.tags)),
     input.source.trim(),
     input.body.trim(),
+    input.annotation.trim(),
     now
   ).run();
 
@@ -49,11 +51,12 @@ export async function updateEntry(db: D1Database, id: string, updates: Partial<C
     ...(updates.tags !== undefined ? { tags: uniqueClean(updates.tags) } : {}),
     ...(updates.source !== undefined ? { source: updates.source.trim() } : {}),
     ...(updates.body !== undefined ? { body: updates.body.trim() } : {}),
+    ...(updates.annotation !== undefined ? { annotation: updates.annotation.trim() } : {}),
     updatedAt: now
   };
 
   await db.prepare(
-    `UPDATE entries SET title = ?2, type = ?3, project = ?4, status = ?5, tags = ?6, source = ?7, body = ?8, updated_at = ?9
+    `UPDATE entries SET title = ?2, type = ?3, project = ?4, status = ?5, tags = ?6, source = ?7, body = ?8, annotation = ?9, updated_at = ?10
      WHERE id = ?1`
   ).bind(
     id,
@@ -64,6 +67,7 @@ export async function updateEntry(db: D1Database, id: string, updates: Partial<C
     JSON.stringify(next.tags),
     next.source,
     next.body,
+    next.annotation,
     next.updatedAt
   ).run();
 
@@ -132,6 +136,7 @@ function rowToEntry(row: EntryRow): Entry {
     tags: JSON.parse(row.tags) as string[],
     source: row.source,
     body: row.body,
+    annotation: row.annotation,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

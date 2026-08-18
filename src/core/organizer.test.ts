@@ -57,6 +57,28 @@ test("generates title from Markdown heading or first meaningful line", () => {
   assert.match(firstLine.title, /^Billing queue replay failed/);
 });
 
+test("classifies a recognized command block as type command with an auto-generated annotation and tool tags", () => {
+  const result = organizeDraft({ body: "git push --force", projects, tags: [] });
+
+  assert.equal(result.type, "command");
+  assert.equal(result.annotation, "强制推送，会覆盖远程分支历史，谨慎使用");
+  assert.ok(result.tags.includes("git"));
+});
+
+test("classifies a recognized tool with no curated annotation rule as command with an empty annotation", () => {
+  const result = organizeDraft({ body: "ls -la", projects, tags: [] });
+
+  assert.equal(result.type, "command");
+  assert.equal(result.annotation, "");
+});
+
+test("does not misclassify prose that only mentions a command as type command", () => {
+  const result = organizeDraft({ body: "some-obscure-tool --flag", projects, tags: [] });
+
+  assert.notEqual(result.type, "command");
+  assert.equal(result.annotation, "");
+});
+
 test("returns inbox draft target when no project is matched", () => {
   const result = organizeDraft({
     body: "Loose note that does not mention a known project.",
