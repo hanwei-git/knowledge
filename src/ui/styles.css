@@ -253,19 +253,20 @@ textarea {
   padding: 8px 10px;
 }
 
-.draft-preview .command-annotation {
-  margin: 4px 0 0;
-}
-
 .inline-error {
   margin: 0;
 }
 
 .row {
   display: grid;
-  grid-template-columns: minmax(160px, 260px) 1fr;
+  grid-template-columns: 1fr minmax(140px, 200px);
   align-items: start;
   gap: 10px;
+}
+
+.command-body-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .annotation-input {
@@ -353,6 +354,29 @@ textarea {
   white-space: nowrap;
   color: #55705e;
   font-size: 12px;
+}
+
+.command-annotation.editable {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: 0 -4px 4px;
+}
+
+.command-annotation.editable:hover {
+  background: #eef2ea;
+}
+
+.command-annotation.empty {
+  color: #9aa79c;
+  font-style: italic;
+}
+
+.command-annotation-edit {
+  margin: 0 0 4px;
+  min-height: 44px;
+  font-size: 12px;
+  padding: 4px 6px;
 }
 
 .tag-input {

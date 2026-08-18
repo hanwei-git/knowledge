@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { createEntry, deleteEntry, getSummary, subscribeToChanges } from "./api.js";
+import { createEntry, deleteEntry, getSummary, subscribeToChanges, updateEntry } from "./api.js";
 import { organizeDrafts } from "../core/organizer.js";
 import type { Entry, Summary } from "../core/types.js";
 import "./styles.css";
@@ -76,7 +76,6 @@ function App() {
 function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
   const [rawInput, setRawInput] = useState("");
   const [splitEnabled, setSplitEnabled] = useState(true);
-  const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [tagsOverride, setTagsOverride] = useState<string[] | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [annotationOverride, setAnnotationOverride] = useState<string | null>(null);
@@ -89,13 +88,11 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   );
   const single = drafts.length === 1;
   const draft = drafts[0];
-  const title = single ? titleOverride ?? draft.title : draft.title;
   const tags = single ? tagsOverride ?? draft.tags : draft.tags;
   const annotation = single ? annotationOverride ?? draft.annotation : draft.annotation;
 
   function resetCapture() {
     setRawInput("");
-    setTitleOverride(null);
     setTagsOverride(null);
     setTagDraft("");
     setAnnotationOverride(null);
@@ -110,7 +107,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
     setSaving(true);
     try {
       if (single) {
-        await createEntry({ title, body: draft.body, annotation, tags });
+        await createEntry({ title: draft.title, body: draft.body, annotation, tags });
         setNotice("Command saved");
       } else {
         for (const item of drafts) {
@@ -135,7 +132,6 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
         value={rawInput}
         onChange={(event) => {
           setRawInput(event.target.value);
-          setTitleOverride(null);
           setTagsOverride(null);
           setTagDraft("");
           setAnnotationOverride(null);
@@ -157,16 +153,16 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
 
       {single ? (
         <div className="panel detail-editor">
-          <div className="row">
-            <input value={title} onChange={(event) => setTitleOverride(event.target.value)} placeholder="Title" />
-            <TagInput tags={tags} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
-          </div>
           <textarea
             className="annotation-input"
             value={annotation}
             onChange={(event) => setAnnotationOverride(event.target.value)}
             placeholder="What does this do? (auto-filled from your comment, or a guess when recognized)"
           />
+          <div className="row">
+            <pre className="command-body command-body-preview">{draft.body}</pre>
+            <TagInput tags={tags} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
+          </div>
         </div>
       ) : (
         <div className="panel detail-editor">
@@ -174,8 +170,8 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
           <div className="draft-preview-list">
             {drafts.map((item, index) => (
               <div className="draft-preview" key={index}>
-                <pre className="command-body">{item.body}</pre>
                 {item.annotation && <p className="command-annotation">{item.annotation}</p>}
+                <pre className="command-body">{item.body}</pre>
               </div>
             ))}
           </div>
@@ -268,28 +264,6 @@ function Commands({ entries, onSaved, setNotice }: {
     return matchesQuery && matchesTag;
   });
 
-  async function copy(entry: Entry) {
-    try {
-      await navigator.clipboard.writeText(entry.body);
-      setNotice(`Copied "${entry.title}"`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function remove(entry: Entry) {
-    if (!window.confirm(`Delete "${entry.title}"?`)) {
-      return;
-    }
-    try {
-      await deleteEntry(entry.id);
-      setNotice("Command deleted");
-      await onSaved();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    }
-  }
-
   return (
     <section className="panel">
       <input
@@ -309,22 +283,101 @@ function Commands({ entries, onSaved, setNotice }: {
       {!filtered.length && <p className="muted">No commands saved yet — capture one and it will show up here.</p>}
       <div className="command-list">
         {filtered.map((entry) => (
-          <article className="command-card" key={entry.id}>
-            <div className="command-card-top">
-              <div className="command-tags">
-                {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
-              </div>
-              <div className="command-actions">
-                <button className="ghost" onClick={() => copy(entry)}>Copy</button>
-                <button className="ghost" onClick={() => remove(entry)}>Delete</button>
-              </div>
-            </div>
-            {entry.annotation && <p className="command-annotation">{entry.annotation}</p>}
-            <pre className="command-body">{entry.body}</pre>
-          </article>
+          <CommandCard key={entry.id} entry={entry} onSaved={onSaved} setNotice={setNotice} />
         ))}
       </div>
     </section>
+  );
+}
+
+function CommandCard({ entry, onSaved, setNotice }: {
+  entry: Entry;
+  onSaved: () => Promise<void>;
+  setNotice: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [annotationDraft, setAnnotationDraft] = useState(entry.annotation);
+
+  useEffect(() => {
+    if (!editing) {
+      setAnnotationDraft(entry.annotation);
+    }
+  }, [entry.annotation, editing]);
+
+  async function saveAnnotation() {
+    setEditing(false);
+    const next = annotationDraft.trim();
+    if (next === entry.annotation) {
+      return;
+    }
+    try {
+      await updateEntry(entry.id, { annotation: next });
+      await onSaved();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(entry.body);
+      setNotice(`Copied "${entry.title}"`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Delete "${entry.title}"?`)) {
+      return;
+    }
+    try {
+      await deleteEntry(entry.id);
+      setNotice("Command deleted");
+      await onSaved();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <article className="command-card">
+      <div className="command-card-top">
+        <div className="command-tags">
+          {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
+        </div>
+        <div className="command-actions">
+          <button className="ghost" onClick={copy}>Copy</button>
+          <button className="ghost" onClick={remove}>Delete</button>
+        </div>
+      </div>
+      {editing ? (
+        <textarea
+          autoFocus
+          className="command-annotation-edit"
+          value={annotationDraft}
+          onChange={(event) => setAnnotationDraft(event.target.value)}
+          onBlur={saveAnnotation}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              saveAnnotation();
+            } else if (event.key === "Escape") {
+              setAnnotationDraft(entry.annotation);
+              setEditing(false);
+            }
+          }}
+        />
+      ) : (
+        <p
+          className={entry.annotation ? "command-annotation editable" : "command-annotation editable empty"}
+          onClick={() => setEditing(true)}
+        >
+          {entry.annotation || "Add a description..."}
+        </p>
+      )}
+      <pre className="command-body">{entry.body}</pre>
+    </article>
   );
 }
 
