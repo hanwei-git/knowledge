@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createEntry, deleteEntry, getSummary, subscribeToChanges, updateEntry } from "./api.js";
 import { organizeDrafts } from "../core/organizer.js";
+import { findSecrets } from "../core/secretScanner.js";
 import type { Entry, Summary } from "../core/types.js";
 import "./styles.css";
 
@@ -81,6 +82,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   const [annotationOverride, setAnnotationOverride] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const drafts = useMemo(
     () => organizeDrafts({ body: rawInput, tags: summary.tags, split: splitEnabled }),
@@ -100,12 +102,25 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   }
 
   async function save() {
+    if (savingRef.current) {
+      return;
+    }
     if (!rawInput.trim()) {
       setError("Paste or type a command before saving.");
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
+      const toSave = single
+        ? [{ title: draft.title, body: draft.body, annotation }]
+        : drafts.map((item) => ({ title: item.title, body: item.body, annotation: item.annotation }));
+      const findings = [...new Set(toSave.flatMap((item) => findSecrets(`${item.title}\n${item.body}\n${item.annotation}`)))];
+      if (findings.length && !window.confirm(
+        `This looks like it may contain sensitive information:\n${findings.join(", ")}\n\nSave anyway?`
+      )) {
+        return;
+      }
       if (single) {
         await createEntry({ title: draft.title, body: draft.body, annotation, tags });
         setNotice("Command saved");
@@ -120,6 +135,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -297,6 +313,7 @@ function CommandCard({ entry, onSaved, setNotice }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [annotationDraft, setAnnotationDraft] = useState(entry.annotation);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (!editing) {
@@ -304,17 +321,38 @@ function CommandCard({ entry, onSaved, setNotice }: {
     }
   }, [entry.annotation, editing]);
 
-  async function saveAnnotation() {
-    setEditing(false);
-    const next = annotationDraft.trim();
-    if (next === entry.annotation) {
+  async function saveAnnotation(viaBlur: boolean) {
+    if (savingRef.current) {
       return;
     }
+    savingRef.current = true;
     try {
+      const next = annotationDraft.trim();
+      if (next === entry.annotation) {
+        setEditing(false);
+        return;
+      }
+      const findings = findSecrets(next);
+      if (findings.length) {
+        // Never call window.confirm() from a blur handler — a dialog
+        // opening while focus is already mid-transition is unreliable.
+        // Leave editing open so the text isn't lost; the user presses
+        // Enter (a deliberate action, not an incidental one) to get the
+        // confirm prompt, or Escape to discard.
+        if (viaBlur) {
+          return;
+        }
+        if (!window.confirm(`This looks like it may contain sensitive information:\n${findings.join(", ")}\n\nSave anyway?`)) {
+          return;
+        }
+      }
+      setEditing(false);
       await updateEntry(entry.id, { annotation: next });
       await onSaved();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      savingRef.current = false;
     }
   }
 
@@ -357,11 +395,11 @@ function CommandCard({ entry, onSaved, setNotice }: {
           className="command-annotation-edit"
           value={annotationDraft}
           onChange={(event) => setAnnotationDraft(event.target.value)}
-          onBlur={saveAnnotation}
+          onBlur={() => saveAnnotation(true)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              saveAnnotation();
+              saveAnnotation(false);
             } else if (event.key === "Escape") {
               setAnnotationDraft(entry.annotation);
               setEditing(false);
