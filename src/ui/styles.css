@@ -228,6 +228,16 @@ textarea {
   max-height: 96px;
 }
 
+.note-input {
+  min-height: 220px;
+  max-height: 60vh;
+}
+
+.notes-panel,
+.notes-panel .capture-workspace {
+  max-width: 960px;
+}
+
 .capture-actions {
   display: flex;
   align-items: center;

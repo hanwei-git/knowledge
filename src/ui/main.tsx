@@ -433,7 +433,7 @@ function NoteCaptureWorkspace({ summary, onSaved, setNotice, compact }: { summar
     <section className={compact ? "capture-workspace compact" : "capture-workspace"}>
       <textarea
         autoFocus={!compact}
-        className={compact ? "capture-input compact" : "capture-input"}
+        className="capture-input note-input"
         value={rawBody}
         onChange={(event) => {
           setRawBody(event.target.value);
@@ -493,7 +493,7 @@ function Notes({ summary, onSaved, setNotice }: {
   });
 
   return (
-    <section className="panel">
+    <section className="panel notes-panel">
       <NoteCaptureWorkspace summary={summary} onSaved={onSaved} setNotice={setNotice} compact />
       <input
         className="command-filter"
