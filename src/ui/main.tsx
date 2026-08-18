@@ -404,6 +404,31 @@ function CommandCard({ entry, onSaved, setNotice }: {
   return (
     <article className="command-card">
       <div className="command-card-top">
+        {editing ? (
+          <textarea
+            autoFocus
+            className="command-annotation-edit"
+            value={annotationDraft}
+            onChange={(event) => setAnnotationDraft(event.target.value)}
+            onBlur={() => saveAnnotation(true)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                saveAnnotation(false);
+              } else if (event.key === "Escape") {
+                setAnnotationDraft(entry.annotation);
+                setEditing(false);
+              }
+            }}
+          />
+        ) : (
+          <span
+            className={entry.annotation ? "command-annotation editable" : "command-annotation editable empty"}
+            onClick={() => setEditing(true)}
+          >
+            {entry.annotation || "Add a description..."}
+          </span>
+        )}
         <div className="command-tags">
           {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
         </div>
@@ -412,31 +437,6 @@ function CommandCard({ entry, onSaved, setNotice }: {
           <button className="ghost" onClick={remove}>Delete</button>
         </div>
       </div>
-      {editing ? (
-        <textarea
-          autoFocus
-          className="command-annotation-edit"
-          value={annotationDraft}
-          onChange={(event) => setAnnotationDraft(event.target.value)}
-          onBlur={() => saveAnnotation(true)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              saveAnnotation(false);
-            } else if (event.key === "Escape") {
-              setAnnotationDraft(entry.annotation);
-              setEditing(false);
-            }
-          }}
-        />
-      ) : (
-        <p
-          className={entry.annotation ? "command-annotation editable" : "command-annotation editable empty"}
-          onClick={() => setEditing(true)}
-        >
-          {entry.annotation || "Add a description..."}
-        </p>
-      )}
       <pre className="command-body">{entry.body}</pre>
     </article>
   );

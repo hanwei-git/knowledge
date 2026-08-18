@@ -247,6 +247,8 @@ textarea {
 }
 
 .draft-preview {
+  display: grid;
+  gap: 4px;
   border: 1px solid #d8e2d1;
   border-radius: 8px;
   background: #fbfdf8;
@@ -315,14 +317,15 @@ textarea {
 
 .command-card-top {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
   margin-bottom: 4px;
 }
 
 .command-tags {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   gap: 4px;
   min-width: 0;
@@ -340,6 +343,7 @@ textarea {
   display: flex;
   flex: none;
   gap: 6px;
+  margin-left: auto;
 }
 
 .command-actions button {
@@ -348,7 +352,9 @@ textarea {
 }
 
 .command-annotation {
-  margin: 0 0 4px;
+  flex: 1 1 auto;
+  min-width: 60px;
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -368,7 +374,7 @@ textarea {
 }
 
 .duplicate-warning {
-  margin: 0 0 4px;
+  margin: 0;
   color: #a15b1f;
   font-size: 12px;
 }
@@ -379,8 +385,10 @@ textarea {
 }
 
 .command-annotation-edit {
-  margin: 0 0 4px;
-  min-height: 44px;
+  flex: 1 1 160px;
+  min-width: 160px;
+  min-height: 32px;
+  margin: 0;
   font-size: 12px;
   padding: 4px 6px;
 }
