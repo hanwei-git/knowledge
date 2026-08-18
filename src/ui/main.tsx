@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createEntry, deleteEntry, getSummary, subscribeToChanges, updateEntry } from "./api.js";
+import { normalizeCommandBody } from "../core/commandRules.js";
 import { organizeDrafts } from "../core/organizer.js";
 import { findSecrets } from "../core/secretScanner.js";
 import type { Entry, Summary } from "../core/types.js";
@@ -92,6 +93,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   const draft = drafts[0];
   const tags = single ? tagsOverride ?? draft.tags : draft.tags;
   const annotation = single ? annotationOverride ?? draft.annotation : draft.annotation;
+  const duplicateOf = single ? findDuplicate(draft.body, summary.entries) : undefined;
 
   function resetCapture() {
     setRawInput("");
@@ -115,10 +117,26 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
       const toSave = single
         ? [{ title: draft.title, body: draft.body, annotation }]
         : drafts.map((item) => ({ title: item.title, body: item.body, annotation: item.annotation }));
-      const findings = [...new Set(toSave.flatMap((item) => findSecrets(`${item.title}\n${item.body}\n${item.annotation}`)))];
-      if (findings.length && !window.confirm(
-        `This looks like it may contain sensitive information:\n${findings.join(", ")}\n\nSave anyway?`
-      )) {
+
+      const concerns: string[] = [];
+      const seenInBatch = new Set<string>();
+      for (const item of toSave) {
+        const label = item.body.split("\n")[0];
+        const normalized = normalizeCommandBody(item.body);
+        const existing = findDuplicate(item.body, summary.entries);
+        if (existing) {
+          concerns.push(`"${label}" looks like a duplicate of an existing command ("${existing.title}")`);
+        } else if (seenInBatch.has(normalized)) {
+          concerns.push(`"${label}" appears more than once in this paste`);
+        }
+        seenInBatch.add(normalized);
+
+        const secretFindings = findSecrets(`${item.title}\n${item.body}\n${item.annotation}`);
+        if (secretFindings.length) {
+          concerns.push(`"${label}" may contain sensitive information (${secretFindings.join(", ")})`);
+        }
+      }
+      if (concerns.length && !window.confirm(`Before saving:\n\n${concerns.join("\n")}\n\nSave anyway?`)) {
         return;
       }
       if (single) {
@@ -169,6 +187,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
 
       {single ? (
         <div className="panel detail-editor">
+          {duplicateOf && <p className="duplicate-warning">Looks like a duplicate of "{duplicateOf.title}"</p>}
           <textarea
             className="annotation-input"
             value={annotation}
@@ -184,12 +203,16 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
         <div className="panel detail-editor">
           <p className="muted">{drafts.length} commands detected — each will be saved as its own entry.</p>
           <div className="draft-preview-list">
-            {drafts.map((item, index) => (
-              <div className="draft-preview" key={index}>
-                {item.annotation && <p className="command-annotation">{item.annotation}</p>}
-                <pre className="command-body">{item.body}</pre>
-              </div>
-            ))}
+            {drafts.map((item, index) => {
+              const dup = findDuplicate(item.body, summary.entries);
+              return (
+                <div className="draft-preview" key={index}>
+                  {dup && <p className="duplicate-warning">Looks like a duplicate of "{dup.title}"</p>}
+                  {item.annotation && <p className="command-annotation">{item.annotation}</p>}
+                  <pre className="command-body">{item.body}</pre>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -421,6 +444,14 @@ function CommandCard({ entry, onSaved, setNotice }: {
 
 function splitTags(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function findDuplicate(body: string, entries: Entry[]): Entry | undefined {
+  const normalized = normalizeCommandBody(body);
+  if (!normalized) {
+    return undefined;
+  }
+  return entries.find((entry) => normalizeCommandBody(entry.body) === normalized);
 }
 
 function labelView(view: View): string {

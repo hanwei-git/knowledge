@@ -143,6 +143,21 @@ export function splitCommandUnits(raw: string): ExtractedComments[] {
   return units;
 }
 
+/**
+ * Normalizes a command body for duplicate comparison: trims each line and
+ * collapses internal whitespace runs to a single space, so purely
+ * cosmetic differences (extra spaces, trailing whitespace) don't count as
+ * a different command. Case is preserved — shell/SQL/etc. commands are
+ * case-sensitive, so "Git Status" and "git status" are genuinely different.
+ */
+export function normalizeCommandBody(body: string): string {
+  return body
+    .split("\n")
+    .map((line) => line.trim().replace(/\s+/g, " "))
+    .join("\n")
+    .trim();
+}
+
 export function extractToolTags(body: string): string[] {
   const tools = new Set<string>();
   for (const line of nonEmptyLines(body)) {

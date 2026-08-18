@@ -367,6 +367,12 @@ textarea {
   background: #eef2ea;
 }
 
+.duplicate-warning {
+  margin: 0 0 4px;
+  color: #a15b1f;
+  font-size: 12px;
+}
+
 .command-annotation.empty {
   color: #9aa79c;
   font-style: italic;

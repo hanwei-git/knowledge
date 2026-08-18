@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotateCommand, extractComments, extractToolTags, splitCommandUnits } from "./commandRules.js";
+import { annotateCommand, extractComments, extractToolTags, normalizeCommandBody, splitCommandUnits } from "./commandRules.js";
 
 test("extractComments splits a full-line # comment from the command", () => {
   const result = extractComments("#还原最近一个提交到stage\ngit reset HEAD~1");
@@ -93,4 +93,15 @@ test("splitCommandUnits does not carry a comment over to a second command line",
 test("splitCommandUnits ignores blank lines between commands", () => {
   const units = splitCommandUnits("git status\n\ngit push --force");
   assert.equal(units.length, 2);
+});
+
+test("normalizeCommandBody collapses whitespace differences but preserves case", () => {
+  assert.equal(normalizeCommandBody("git   status\n"), "git status");
+  assert.equal(normalizeCommandBody("  git status  "), "git status");
+  assert.equal(normalizeCommandBody("git status"), normalizeCommandBody("  git   status  "));
+  assert.notEqual(normalizeCommandBody("Git Status"), normalizeCommandBody("git status"));
+});
+
+test("normalizeCommandBody normalizes whitespace per line for multi-line bodies", () => {
+  assert.equal(normalizeCommandBody("git fetch\n  git   merge origin/main  "), "git fetch\ngit merge origin/main");
 });
