@@ -87,8 +87,8 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   const savingRef = useRef(false);
 
   const drafts = useMemo(
-    () => organizeDrafts({ body: rawInput, tags: summary.tags, split: splitEnabled }),
-    [rawInput, summary.tags, splitEnabled]
+    () => organizeDrafts({ body: rawInput, tags: summary.tags, entries: summary.entries, split: splitEnabled }),
+    [rawInput, summary.tags, summary.entries, splitEnabled]
   );
   const single = drafts.length === 1;
   const draft = drafts[0];
@@ -147,7 +147,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
         setNotice("Command saved");
       } else {
         for (const item of drafts) {
-          await createEntry({ title: item.title, body: item.body, annotation: item.annotation, tags: item.tags });
+          await createEntry({ title: item.title, body: item.body, annotation: item.annotation, tags: mergeTags(item.tags, tagsOverride ?? []) });
         }
         setNotice(`Saved ${drafts.length} commands`);
       }
@@ -211,14 +211,21 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
       ) : (
         <div className="panel detail-editor">
           <p className="muted">{drafts.length} commands detected — each will be saved as its own entry.</p>
+          <TagInput tags={tagsOverride ?? []} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
           <div className="draft-preview-list">
             {drafts.map((item, index) => {
               const dup = findDuplicate(item.body, summary.entries);
+              const itemTags = mergeTags(item.tags, tagsOverride ?? []);
               return (
                 <div className="draft-preview" key={index}>
                   {dup && <p className="duplicate-warning">Looks like a duplicate of "{dup.title}"</p>}
                   {item.annotation && <p className="command-annotation">{item.annotation}</p>}
                   <pre className="command-body">{item.body}</pre>
+                  {itemTags.length > 0 && (
+                    <div className="command-tags">
+                      {itemTags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -345,7 +352,17 @@ function CommandCard({ entry, onSaved, setNotice }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [annotationDraft, setAnnotationDraft] = useState(entry.annotation);
+  const [copiedLine, setCopiedLine] = useState<number | null>(null);
   const savingRef = useRef(false);
+  const copiedLineTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedLineTimeoutRef.current) {
+        clearTimeout(copiedLineTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!editing) {
@@ -392,6 +409,19 @@ function CommandCard({ entry, onSaved, setNotice }: {
     try {
       await navigator.clipboard.writeText(entry.body);
       setNotice(`Copied "${entry.title}"`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function copyLine(line: string, index: number) {
+    try {
+      await navigator.clipboard.writeText(line);
+      setCopiedLine(index);
+      if (copiedLineTimeoutRef.current) {
+        clearTimeout(copiedLineTimeoutRef.current);
+      }
+      copiedLineTimeoutRef.current = setTimeout(() => setCopiedLine(null), 1500);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
@@ -446,13 +476,35 @@ function CommandCard({ entry, onSaved, setNotice }: {
           <button className="ghost" onClick={remove}>Delete</button>
         </div>
       </div>
-      <pre className="command-body">{entry.body}</pre>
+      {entry.body.includes("\n") ? (
+        <pre className="command-body command-body-lines">
+          {entry.body.split("\n").map((line, index) => (
+            <span className="command-body-line" key={index}>
+              <button
+                type="button"
+                className={copiedLine === index ? "command-line-copy copied" : "command-line-copy"}
+                onClick={() => copyLine(line, index)}
+                aria-label={`Copy line: ${line}`}
+              >
+                {copiedLine === index ? "✓" : "⧉"}
+              </button>
+              <span className="command-body-line-text">{line}</span>
+            </span>
+          ))}
+        </pre>
+      ) : (
+        <pre className="command-body">{entry.body}</pre>
+      )}
     </article>
   );
 }
 
 function splitTags(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function mergeTags(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])];
 }
 
 function findDuplicate(body: string, entries: Entry[]): Entry | undefined {

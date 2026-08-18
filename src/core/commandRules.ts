@@ -158,6 +158,32 @@ export function normalizeCommandBody(body: string): string {
     .trim();
 }
 
+/**
+ * A deterministic "shape" for a command: its tool name plus the sorted set
+ * of flag tokens it uses, ignoring subcommands/positional arguments and
+ * flag values. Two commands that differ only in a trailing argument (e.g.
+ * a branch name, a namespace, a resource name) share the same signature —
+ * used to carry tags forward from a previously-tagged command onto a new,
+ * structurally similar one. Returns null when the body has no command line.
+ */
+export function commandSignature(body: string): string | null {
+  const line = nonEmptyLines(body)[0];
+  if (!line) {
+    return null;
+  }
+  const tokens = line.split(/\s+/).filter(Boolean);
+  let index = 0;
+  if (tokens[index] === "sudo") {
+    index++;
+  }
+  const tool = tokens[index];
+  if (!tool) {
+    return null;
+  }
+  const flags = tokens.slice(index + 1).filter((token) => token.startsWith("-")).sort();
+  return [tool, ...flags].join(" ");
+}
+
 export function extractToolTags(body: string): string[] {
   const tools = new Set<string>();
   for (const line of nonEmptyLines(body)) {

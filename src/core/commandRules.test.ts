@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotateCommand, extractComments, extractSeparatedOverview, extractToolTags, normalizeCommandBody, skipLeadingComments, splitCommandUnits } from "./commandRules.js";
+import { annotateCommand, commandSignature, extractComments, extractSeparatedOverview, extractToolTags, normalizeCommandBody, skipLeadingComments, splitCommandUnits } from "./commandRules.js";
 
 test("extractComments splits a full-line # comment from the command", () => {
   const result = extractComments("#还原最近一个提交到stage\ngit reset HEAD~1");
@@ -141,4 +141,25 @@ test("extractSeparatedOverview joins a multi-line leading comment block before t
   const result = extractSeparatedOverview("# step 1\n# step 2\n\ngit status");
   assert.equal(result.overview, "step 1\nstep 2");
   assert.equal(result.body, "git status");
+});
+
+test("commandSignature is the tool plus its sorted flags, ignoring subcommands and positional arguments", () => {
+  assert.equal(commandSignature("kubectl rollout restart deployment/api"), "kubectl");
+  assert.equal(commandSignature("kubectl rollout restart deployment/web"), "kubectl");
+  assert.equal(commandSignature("kubectl get pods -n prod"), "kubectl -n");
+  assert.equal(commandSignature("kubectl get pods -n staging"), "kubectl -n");
+});
+
+test("commandSignature treats flag order as irrelevant but a different flag set as a different signature", () => {
+  assert.equal(commandSignature("rsync -a -v src/ dest/"), commandSignature("rsync -v -a src2/ dest2/"));
+  assert.notEqual(commandSignature("git push --force"), commandSignature("git push"));
+});
+
+test("commandSignature strips a leading sudo before reading the tool", () => {
+  assert.equal(commandSignature("sudo systemctl restart nginx"), commandSignature("systemctl restart nginx"));
+});
+
+test("commandSignature returns null for an empty body", () => {
+  assert.equal(commandSignature(""), null);
+  assert.equal(commandSignature("   "), null);
 });

@@ -1,8 +1,10 @@
-import { annotateCommand, extractComments, extractSeparatedOverview, extractToolTags, skipLeadingComments, splitCommandUnits, type ExtractedComments } from "./commandRules.js";
+import { annotateCommand, commandSignature, extractComments, extractSeparatedOverview, extractToolTags, skipLeadingComments, splitCommandUnits, type ExtractedComments } from "./commandRules.js";
+import type { Entry } from "./types.js";
 
 export interface OrganizeDraftInput {
   body: string;
   tags: string[];
+  entries?: Entry[];
 }
 
 export interface OrganizedDraft {
@@ -21,11 +23,12 @@ export function organizeDraft(input: OrganizeDraftInput): OrganizedDraft {
   // the first command — it's that command's own comment, not a block-level
   // summary just because it's first) instead of stripping comments out —
   // that's only appropriate when the body ends up as one runnable command.
+  const entries = input.entries ?? [];
   if (splitCommandUnits(raw).length > 1) {
-    return buildCombinedDraft(raw, input.tags);
+    return buildCombinedDraft(raw, input.tags, entries);
   }
   const extracted = extractComments(raw);
-  return buildDraft(extracted, input.tags);
+  return buildDraft(extracted, input.tags, entries);
 }
 
 /**
@@ -43,10 +46,11 @@ export function organizeDrafts(input: OrganizeDraftInput & { split: boolean }): 
   if (units.length <= 1) {
     return [organizeDraft(input)];
   }
-  return units.map((unit) => buildDraft(unit, input.tags));
+  const entries = input.entries ?? [];
+  return units.map((unit) => buildDraft(unit, input.tags, entries));
 }
 
-function buildDraft(extracted: ExtractedComments, existingTags: string[]): OrganizedDraft {
+function buildDraft(extracted: ExtractedComments, existingTags: string[], entries: Entry[]): OrganizedDraft {
   const { body } = extracted;
   const annotation = extracted.annotation || annotateCommand(body);
 
@@ -54,11 +58,11 @@ function buildDraft(extracted: ExtractedComments, existingTags: string[]): Organ
     title: inferTitle(body),
     body,
     annotation,
-    tags: inferTags(body, annotation, existingTags)
+    tags: inferTags(body, annotation, existingTags, entries)
   };
 }
 
-function buildCombinedDraft(raw: string, existingTags: string[]): OrganizedDraft {
+function buildCombinedDraft(raw: string, existingTags: string[], entries: Entry[]): OrganizedDraft {
   // A leading comment block only counts as a genuine, block-level overview
   // — extracted out of the body — when it's separated from the first
   // command by a blank line (see extractSeparatedOverview). Without that
@@ -71,7 +75,7 @@ function buildCombinedDraft(raw: string, existingTags: string[]): OrganizedDraft
     title: inferTitle(skipLeadingComments(body)),
     body,
     annotation,
-    tags: inferTags(body, annotation, existingTags)
+    tags: inferTags(body, annotation, existingTags, entries)
   };
 }
 
@@ -83,12 +87,34 @@ function inferTitle(body: string): string {
   return line.length > 72 ? `${line.slice(0, 69).trimEnd()}...` : line;
 }
 
-function inferTags(body: string, annotation: string, existingTags: string[]): string[] {
+function inferTags(body: string, annotation: string, existingTags: string[], entries: Entry[]): string[] {
   const toolTags = extractToolTags(body);
   const haystack = `${body}\n${annotation}`;
   const inlineTags = [...haystack.matchAll(/#([\p{L}\p{N}_-]+)/gu)].map((match) => match[1]);
   const reusedTags = existingTags.filter((tag) => tag && haystack.toLowerCase().includes(tag.toLowerCase()));
-  return unique([...toolTags, ...inlineTags, ...reusedTags]).slice(0, 6);
+  const similarTags = findSimilarTags(body, entries);
+  return unique([...toolTags, ...inlineTags, ...reusedTags, ...similarTags]).slice(0, 6);
+}
+
+/**
+ * Carries tags forward from previously-saved commands that share the same
+ * signature (same tool + same flags, see commandSignature) as the new
+ * command — e.g. a manually-tagged "kubectl rollout restart
+ * deployment/api" lends its tags to a later "kubectl rollout restart
+ * deployment/web" even though the resource name differs.
+ */
+function findSimilarTags(body: string, entries: Entry[]): string[] {
+  const signature = commandSignature(body);
+  if (!signature) {
+    return [];
+  }
+  const tags: string[] = [];
+  for (const entry of entries) {
+    if (commandSignature(entry.body) === signature) {
+      tags.push(...entry.tags);
+    }
+  }
+  return tags;
 }
 
 function unique(values: string[]): string[] {

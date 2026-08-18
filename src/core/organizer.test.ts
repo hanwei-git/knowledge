@@ -107,3 +107,63 @@ test("a combined multi-command draft falls back to the curated guess when there 
   assert.equal(result.annotation, "查看 Git 工作区和暂存区状态\n强制推送，会覆盖远程分支历史，谨慎使用");
   assert.equal(result.body, "git status\ngit push --force");
 });
+
+test("carries tags forward from a previously-saved command with the same tool and flags, even though the trailing argument differs", () => {
+  const entries = [
+    {
+      id: "1",
+      title: "kubectl rollout restart deployment/api",
+      body: "kubectl rollout restart deployment/api",
+      annotation: "",
+      tags: ["prod-cluster"],
+      createdAt: "",
+      updatedAt: ""
+    }
+  ];
+  const result = organizeDraft({ body: "kubectl rollout restart deployment/web", tags: [], entries });
+
+  assert.ok(result.tags.includes("prod-cluster"));
+});
+
+test("does not carry tags forward when the tool or flags differ", () => {
+  const entries = [
+    {
+      id: "1",
+      title: "kubectl get pods -n prod",
+      body: "kubectl get pods -n prod",
+      annotation: "",
+      tags: ["prod-cluster"],
+      createdAt: "",
+      updatedAt: ""
+    }
+  ];
+  const differentTool = organizeDraft({ body: "docker ps -a", tags: [], entries });
+  assert.ok(!differentTool.tags.includes("prod-cluster"));
+
+  const differentFlags = organizeDraft({ body: "kubectl get pods --all-namespaces", tags: [], entries });
+  assert.ok(!differentFlags.tags.includes("prod-cluster"));
+});
+
+test("organizeDrafts carries similar-command tags into every split draft that matches", () => {
+  const entries = [
+    {
+      id: "1",
+      title: "kubectl rollout restart deployment/api",
+      body: "kubectl rollout restart deployment/api",
+      annotation: "",
+      tags: ["prod-cluster"],
+      createdAt: "",
+      updatedAt: ""
+    }
+  ];
+  const results = organizeDrafts({
+    body: "kubectl rollout restart deployment/web\nkubectl rollout restart deployment/worker",
+    tags: [],
+    entries,
+    split: true
+  });
+
+  assert.equal(results.length, 2);
+  assert.ok(results[0].tags.includes("prod-cluster"));
+  assert.ok(results[1].tags.includes("prod-cluster"));
+});
