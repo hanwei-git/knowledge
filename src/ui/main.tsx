@@ -504,7 +504,7 @@ function CommandCard({ entry, onSaved, setNotice }: {
       <pre className="command-body command-body-lines">
         {entry.body.split("\n").map((line, index) => (
           <span className="command-body-line" key={index}>
-            {isCommentLine(line) ? (
+            {isCommentLine(line) || !line.trim() ? (
               <span className="command-line-copy-spacer" aria-hidden="true" />
             ) : (
               <button
