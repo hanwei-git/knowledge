@@ -267,6 +267,9 @@ textarea {
 }
 
 .command-body-preview {
+  min-height: 0;
+  border: 1px solid #2a3b30;
+  resize: vertical;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

@@ -78,6 +78,7 @@ function App() {
 function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
   const [rawInput, setRawInput] = useState("");
   const [splitEnabled, setSplitEnabled] = useState(true);
+  const [bodyOverride, setBodyOverride] = useState<string | null>(null);
   const [tagsOverride, setTagsOverride] = useState<string[] | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [annotationOverride, setAnnotationOverride] = useState<string | null>(null);
@@ -91,12 +92,14 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   );
   const single = drafts.length === 1;
   const draft = drafts[0];
+  const body = single ? bodyOverride ?? draft.body : draft.body;
   const tags = single ? tagsOverride ?? draft.tags : draft.tags;
   const annotation = single ? annotationOverride ?? draft.annotation : draft.annotation;
-  const duplicateOf = single ? findDuplicate(draft.body, summary.entries) : undefined;
+  const duplicateOf = single ? findDuplicate(body, summary.entries) : undefined;
 
   function resetCapture() {
     setRawInput("");
+    setBodyOverride(null);
     setTagsOverride(null);
     setTagDraft("");
     setAnnotationOverride(null);
@@ -115,7 +118,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
     setSaving(true);
     try {
       const toSave = single
-        ? [{ title: draft.title, body: draft.body, annotation }]
+        ? [{ title: draft.title, body, annotation }]
         : drafts.map((item) => ({ title: item.title, body: item.body, annotation: item.annotation }));
 
       const concerns: string[] = [];
@@ -140,7 +143,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
         return;
       }
       if (single) {
-        await createEntry({ title: draft.title, body: draft.body, annotation, tags });
+        await createEntry({ title: draft.title, body, annotation, tags });
         setNotice("Command saved");
       } else {
         for (const item of drafts) {
@@ -166,6 +169,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
         value={rawInput}
         onChange={(event) => {
           setRawInput(event.target.value);
+          setBodyOverride(null);
           setTagsOverride(null);
           setTagDraft("");
           setAnnotationOverride(null);
@@ -195,7 +199,12 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
             placeholder="What does this do? (auto-filled from your comment, or a guess when recognized)"
           />
           <div className="row">
-            <pre className="command-body command-body-preview">{draft.body}</pre>
+            <textarea
+              className="command-body command-body-preview"
+              value={body}
+              onChange={(event) => setBodyOverride(event.target.value)}
+              spellCheck={false}
+            />
             <TagInput tags={tags} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
           </div>
         </div>
@@ -404,6 +413,9 @@ function CommandCard({ entry, onSaved, setNotice }: {
   return (
     <article className="command-card">
       <div className="command-card-top">
+        <div className="command-tags">
+          {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
+        </div>
         {editing ? (
           <textarea
             autoFocus
@@ -429,9 +441,6 @@ function CommandCard({ entry, onSaved, setNotice }: {
             {entry.annotation || "Add a description..."}
           </span>
         )}
-        <div className="command-tags">
-          {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
-        </div>
         <div className="command-actions">
           <button className="ghost" onClick={copy}>Copy</button>
           <button className="ghost" onClick={remove}>Delete</button>
