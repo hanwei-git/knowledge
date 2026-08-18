@@ -348,6 +348,16 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.note-title {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  color: #26352c;
+  font-weight: 600;
+}
+
 .command-body-line {
   display: flex;
   align-items: baseline;

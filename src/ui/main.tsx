@@ -525,6 +525,7 @@ function NoteCard({ entry, onSaved, setNotice }: {
   setNotice: (value: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [annotationDraft, setAnnotationDraft] = useState(entry.annotation);
   const savingRef = useRef(false);
 
@@ -630,11 +631,15 @@ function NoteCard({ entry, onSaved, setNotice }: {
           </span>
         )}
         <div className="command-actions">
+          <button className="ghost" onClick={() => setExpanded((value) => !value)}>
+            {expanded ? "Collapse" : "Expand"}
+          </button>
           <button className="ghost" onClick={copy}>Copy</button>
           <button className="ghost" onClick={remove}>Delete</button>
         </div>
       </div>
-      <pre className="command-body note-body">{entry.body}</pre>
+      <p className="note-title" onClick={() => setExpanded((value) => !value)}>{entry.title}</p>
+      {expanded && <pre className="command-body note-body">{entry.body}</pre>}
     </article>
   );
 }
