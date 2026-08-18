@@ -15,7 +15,7 @@ npm install
 npm run dev              # vite — runs the real Worker (D1 + Durable Object) inside the Vite dev process via @cloudflare/vite-plugin
 npm test                 # tsx --test (pure-function tests) && vitest run (D1/Worker/DO tests via @cloudflare/vitest-pool-workers)
 npm run build             # tsc --noEmit && vite build (client -> dist/client, worker bundle -> dist/<worker-name>)
-npm run deploy             # build + wrangler deploy
+npm run deploy             # build + apply any unapplied remote D1 migrations + wrangler deploy
 npm run deploy:dry-run        # build + wrangler deploy --dry-run
 npm run preview            # build + wrangler dev (serve the built Worker locally)
 ```
@@ -24,6 +24,7 @@ npm run preview            # build + wrangler dev (serve the built Worker locall
 - To run a single pure-function test: `tsx --test src/core/organizer.test.ts`.
 - To run a single D1/Worker test file: `npx vitest run src/core/entryStore.workers.test.ts`.
 - Local D1 schema must be applied once (and after any migration changes) before `npm run dev`/`npm test` will see the right tables: `npx wrangler d1 migrations apply knowledge-db --local`.
+- Remote D1 schema is applied automatically as part of `npm run deploy` (`wrangler d1 migrations apply knowledge-db --remote`, before `wrangler deploy`) — no separate manual step needed. In a non-interactive shell (CI, or this being run from an agent) wrangler skips the confirmation prompt but still takes a pre-migration backup. If a deploy ever fails with a D1 `no column named ...` error, it means the Worker got deployed without this migration step running first (e.g. a Cloudflare dashboard build that doesn't invoke `npm run deploy`) — run `npx wrangler d1 migrations apply knowledge-db --remote` directly against the account that owns `wrangler.jsonc`'s `database_id`.
 - There is no separate lint script; `npm run build` runs `tsc --noEmit` for type checking. `src/**/*.workers.test.ts` is excluded from that `tsc` pass (see `tsconfig.json` `exclude`) since it depends on the `cloudflare:test` module only resolvable under the Vitest Workers pool.
 
 ## Architecture: one Worker, D1 + Durable Object
@@ -58,7 +59,7 @@ npm run preview            # build + wrangler dev (serve the built Worker locall
 
 ## Deployment / going live
 
-- `wrangler.jsonc`'s `database_id` is a placeholder (`REPLACE_WITH_DATABASE_ID_FROM_WRANGLER_D1_CREATE`) until someone runs `wrangler login` then `wrangler d1 create knowledge-db` and pastes the real ID in, then applies migrations remotely with `wrangler d1 migrations apply knowledge-db --remote`.
+- `wrangler.jsonc`'s `database_id` is a placeholder (`REPLACE_WITH_DATABASE_ID_FROM_WRANGLER_D1_CREATE`) until someone runs `wrangler login` then `wrangler d1 create knowledge-db` and pastes the real ID in. After that, `npm run deploy` applies remote migrations itself (see the `## Commands` section) — no separate manual `wrangler d1 migrations apply --remote` step in the normal flow.
 - **There is no authentication anywhere in this app.** It's meant to sit behind a Cloudflare Access application (requires attaching a custom domain to the Worker first — Access policies are documented against custom domains, not bare `workers.dev` subdomains) rather than any in-app login. Don't add app-level auth code unless that decision changes; if Access turns out not to cleanly gate the `/api/sync` WebSocket upgrade, the documented fallback is a shared-secret header/cookie check applied uniformly to all routes in `worker.ts`.
 - `dist/client` is committed (see the `dist/*` / `!dist/client/**` carve-out in `.gitignore`) for Cloudflare dashboard build setups that run `wrangler deploy` with no build step — refresh it with `npm run build` before committing app changes if that's the deploy path in use. `dist/<worker-name>` (the SSR worker bundle) is not committed.
 
