@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import ReactMarkdown from "react-markdown";
 import { createEntry, deleteEntry, getSummary, subscribeToChanges, updateEntry } from "./api.js";
 import { isCommentLine, normalizeCommandBody } from "../core/commandRules.js";
-import { formatNoteBody, inferTitle, organizeDrafts, organizeNoteDraft } from "../core/organizer.js";
+import { inferTitle, organizeDrafts, organizeNoteDraft } from "../core/organizer.js";
 import { findSecrets, redactSecrets } from "../core/secretScanner.js";
 import type { Entry, Summary } from "../core/types.js";
 import "./styles.css";
@@ -468,14 +468,6 @@ function NoteCaptureWorkspace({ summary, onSaved, setNotice, compact }: { summar
 
       {expanded && (
         <div className="capture-actions">
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => setRawBody(formatNoteBody(rawBody))}
-            disabled={!rawBody.trim()}
-          >
-            Format
-          </button>
           <button onClick={save} disabled={saving}>Save</button>
         </div>
       )}

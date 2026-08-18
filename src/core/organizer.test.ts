@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatNoteBody, organizeDraft, organizeDrafts, organizeNoteDraft } from "./organizer.js";
+import { organizeDraft, organizeDrafts, organizeNoteDraft } from "./organizer.js";
 
 test("prefers the user's own comment as the annotation over the curated guess", () => {
   const result = organizeDraft({ body: "# revert last commit\ngit reset HEAD~1", tags: [] });
@@ -190,47 +190,6 @@ test("organizeNoteDraft trims the annotation and leaves it empty when not provid
   const result = organizeNoteDraft({ body: "Some steps", annotation: "  ", tags: [] });
 
   assert.equal(result.annotation, "");
-});
-
-test("formatNoteBody flush-lefts plain paragraph lines, stripping stray leading whitespace", () => {
-  const result = formatNoteBody("  Some intro text\n    with a stray indent");
-
-  assert.equal(result, "Some intro text\nwith a stray indent");
-});
-
-test("formatNoteBody snaps ragged list indentation to a consistent 2-spaces-per-level nesting", () => {
-  const result = formatNoteBody(
-    "1. Step one\n   - sub a\n     - sub sub\n   - sub b\n2. Step two"
-  );
-
-  assert.equal(
-    result,
-    "1. Step one\n  - sub a\n    - sub sub\n  - sub b\n2. Step two"
-  );
-});
-
-test("formatNoteBody inserts a blank-line section break between a list block and surrounding paragraph text", () => {
-  const result = formatNoteBody("Deploy steps\n1. Build\n2. Push\nDone for today");
-
-  assert.equal(result, "Deploy steps\n\n1. Build\n2. Push\n\nDone for today");
-});
-
-test("formatNoteBody collapses runs of multiple blank lines to a single one", () => {
-  const result = formatNoteBody("First paragraph\n\n\n\nSecond paragraph");
-
-  assert.equal(result, "First paragraph\n\nSecond paragraph");
-});
-
-test("formatNoteBody trims leading and trailing blank lines", () => {
-  const result = formatNoteBody("\n\nHello\n\n");
-
-  assert.equal(result, "Hello");
-});
-
-test("formatNoteBody never mistakes a decimal number or a horizontal rule for a list item", () => {
-  const result = formatNoteBody("  3.14 is pi\n---");
-
-  assert.equal(result, "3.14 is pi\n---");
 });
 
 test("organizeDrafts carries similar-command tags into every split draft that matches", () => {
