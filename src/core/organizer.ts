@@ -1,4 +1,4 @@
-import { annotateCommand, extractComments, extractLeadingOverview, extractToolTags, splitCommandUnits, type ExtractedComments } from "./commandRules.js";
+import { annotateCommand, extractComments, extractToolTags, skipLeadingComments, splitCommandUnits, type ExtractedComments } from "./commandRules.js";
 
 export interface OrganizeDraftInput {
   body: string;
@@ -17,8 +17,9 @@ const TAG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,23}$/;
 export function organizeDraft(input: OrganizeDraftInput): OrganizedDraft {
   const raw = input.body.trim();
   // A body with more than one actual command line, being kept as a single
-  // combined entry, keeps per-line comments inline (see
-  // extractLeadingOverview) instead of stripping every comment out —
+  // combined entry, keeps every comment inline (including the one before
+  // the first command — it's that command's own comment, not a block-level
+  // summary just because it's first) instead of stripping comments out —
   // that's only appropriate when the body ends up as one runnable command.
   if (splitCommandUnits(raw).length > 1) {
     return buildCombinedDraft(raw, input.tags);
@@ -58,18 +59,17 @@ function buildDraft(extracted: ExtractedComments, existingTags: string[]): Organ
 }
 
 function buildCombinedDraft(raw: string, existingTags: string[]): OrganizedDraft {
-  const { body, overview } = extractLeadingOverview(raw);
-  // No leading overview comment: fall back to a summary built from
-  // whatever per-line comments are still embedded in the body (they're
-  // not stripped out, just also reused as the annotation text), or the
-  // curated-rule guess if there are no comments anywhere at all.
-  const annotation = overview || extractComments(body).annotation || annotateCommand(body);
+  // Body is kept exactly as pasted — no comment, including the one before
+  // the first command, is ever stripped out here. The annotation is a
+  // non-destructive summary of whatever comments exist (or the curated
+  // guess if there are none), never a "this one is special" extraction.
+  const annotation = extractComments(raw).annotation || annotateCommand(raw);
 
   return {
-    title: inferTitle(body),
-    body,
+    title: inferTitle(skipLeadingComments(raw)),
+    body: raw,
     annotation,
-    tags: inferTags(body, annotation, existingTags)
+    tags: inferTags(raw, annotation, existingTags)
   };
 }
 

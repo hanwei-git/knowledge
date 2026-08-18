@@ -169,23 +169,17 @@ export function extractToolTags(body: string): string[] {
   return [...tools];
 }
 
-export interface LeadingOverviewExtraction {
-  body: string;
-  overview: string;
-}
-
 /**
- * For a multi-command paste that's being kept as ONE combined entry (not
- * split into separate ones): pulls out only a leading "overview" comment
- * block — full-line comments before the first actual command — as a
- * top-level summary. Any comments after that point stay embedded in the
- * body untouched, so the saved command block still reads the way the user
- * wrote it (each command visible next to its own inline comment) rather
- * than having every comment stripped out to a single detached annotation.
+ * Finds where the first actual command line starts, skipping past any
+ * leading full-line comments. Used only to infer a title without
+ * accidentally picking a comment as the title — it does NOT imply those
+ * leading comments should be stripped from the saved body. A comment
+ * right before the first command is that command's own comment, exactly
+ * like a comment before any later command; it has no special "overview"
+ * status just by being first, and always stays inline in the body.
  */
-export function extractLeadingOverview(raw: string): LeadingOverviewExtraction {
+export function skipLeadingComments(raw: string): string {
   const lines = raw.split("\n");
-  const overviewLines: string[] = [];
   let index = 0;
 
   while (index < lines.length) {
@@ -197,19 +191,14 @@ export function extractLeadingOverview(raw: string): LeadingOverviewExtraction {
     if (line.startsWith("#!")) {
       break;
     }
-    const comment = matchFullLineComment(line);
-    if (comment === null) {
+    if (matchFullLineComment(line) === null) {
       break;
     }
-    overviewLines.push(comment);
     index++;
   }
 
   const remainder = lines.slice(index).join("\n").trim();
-  return {
-    overview: overviewLines.join("\n"),
-    body: remainder || raw.trim()
-  };
+  return remainder || raw.trim();
 }
 
 export function annotateCommand(body: string): string {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotateCommand, extractComments, extractLeadingOverview, extractToolTags, normalizeCommandBody, splitCommandUnits } from "./commandRules.js";
+import { annotateCommand, extractComments, extractToolTags, normalizeCommandBody, skipLeadingComments, splitCommandUnits } from "./commandRules.js";
 
 test("extractComments splits a full-line # comment from the command", () => {
   const result = extractComments("#还原最近一个提交到stage\ngit reset HEAD~1");
@@ -106,26 +106,15 @@ test("normalizeCommandBody normalizes whitespace per line for multi-line bodies"
   assert.equal(normalizeCommandBody("git fetch\n  git   merge origin/main  "), "git fetch\ngit merge origin/main");
 });
 
-test("extractLeadingOverview pulls out only a comment block before the first command", () => {
-  const result = extractLeadingOverview("# weekly cleanup routine\ngit fetch\n# force push\ngit push --force");
-  assert.equal(result.overview, "weekly cleanup routine");
-  assert.equal(result.body, "git fetch\n# force push\ngit push --force");
+test("skipLeadingComments skips past a leading comment block to find the first real command", () => {
+  assert.equal(skipLeadingComments("# weekly cleanup routine\ngit fetch\n# force push\ngit push --force"), "git fetch\n# force push\ngit push --force");
+  assert.equal(skipLeadingComments("# step 1\n# step 2\ngit status"), "git status");
 });
 
-test("extractLeadingOverview joins a multi-line leading comment block", () => {
-  const result = extractLeadingOverview("# step 1\n# step 2\ngit status");
-  assert.equal(result.overview, "step 1\nstep 2");
-  assert.equal(result.body, "git status");
+test("skipLeadingComments is a no-op when the paste already starts with a command", () => {
+  assert.equal(skipLeadingComments("git status\n# force push\ngit push --force"), "git status\n# force push\ngit push --force");
 });
 
-test("extractLeadingOverview returns an empty overview when the paste starts with a command", () => {
-  const result = extractLeadingOverview("git status\n# force push\ngit push --force");
-  assert.equal(result.overview, "");
-  assert.equal(result.body, "git status\n# force push\ngit push --force");
-});
-
-test("extractLeadingOverview never treats a shebang as a leading comment", () => {
-  const result = extractLeadingOverview("#!/bin/bash\necho hi");
-  assert.equal(result.overview, "");
-  assert.equal(result.body, "#!/bin/bash\necho hi");
+test("skipLeadingComments never treats a shebang as a leading comment", () => {
+  assert.equal(skipLeadingComments("#!/bin/bash\necho hi"), "#!/bin/bash\necho hi");
 });

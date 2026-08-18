@@ -79,14 +79,15 @@ test("a combined multi-command draft keeps per-line comments inline instead of s
   assert.equal(result.body, "git fetch\n# force push\ngit push --force");
 });
 
-test("a combined multi-command draft extracts only a leading overview comment as the annotation", () => {
+test("a combined multi-command draft never treats the first command's own comment as a special overview — it stays inline and in the summary like any other", () => {
   const result = organizeDraft({ body: "# weekly cleanup routine\ngit fetch\n# force push\ngit push --force", tags: [] });
 
-  assert.equal(result.annotation, "weekly cleanup routine");
-  assert.equal(result.body, "git fetch\n# force push\ngit push --force");
+  assert.equal(result.body, "# weekly cleanup routine\ngit fetch\n# force push\ngit push --force");
+  assert.equal(result.annotation, "weekly cleanup routine\nforce push");
+  assert.equal(result.title, "git fetch");
 });
 
-test("a combined multi-command draft with no leading overview summarizes from the per-line comments instead", () => {
+test("a combined multi-command draft summarizes all per-line comments as the annotation", () => {
   const result = organizeDraft({ body: "git fetch\n# force push\ngit push --force", tags: [] });
 
   assert.equal(result.annotation, "force push");
