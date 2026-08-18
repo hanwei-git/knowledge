@@ -1,6 +1,9 @@
+export type EntryType = "command" | "note";
+
 export interface Entry {
   id: string;
   title: string;
+  type: EntryType;
   body: string;
   annotation: string;
   tags: string[];
@@ -15,6 +18,7 @@ export interface SearchFilters {
 
 export interface CreateEntryInput {
   title: string;
+  type: EntryType;
   body: string;
   annotation: string;
   tags: string[];

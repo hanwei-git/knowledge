@@ -333,6 +333,11 @@ textarea {
   white-space: normal;
 }
 
+.note-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .command-body-line {
   display: flex;
   align-items: baseline;

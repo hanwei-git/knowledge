@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { organizeDraft, organizeDrafts } from "./organizer.js";
+import { organizeDraft, organizeDrafts, organizeNoteDraft } from "./organizer.js";
 
 test("prefers the user's own comment as the annotation over the curated guess", () => {
   const result = organizeDraft({ body: "# revert last commit\ngit reset HEAD~1", tags: [] });
@@ -113,6 +113,7 @@ test("carries tags forward from a previously-saved command with the same tool an
     {
       id: "1",
       title: "kubectl rollout restart deployment/api",
+      type: "command" as const,
       body: "kubectl rollout restart deployment/api",
       annotation: "",
       tags: ["prod-cluster"],
@@ -130,6 +131,7 @@ test("does not carry tags forward when the tool or flags differ", () => {
     {
       id: "1",
       title: "kubectl get pods -n prod",
+      type: "command" as const,
       body: "kubectl get pods -n prod",
       annotation: "",
       tags: ["prod-cluster"],
@@ -144,11 +146,58 @@ test("does not carry tags forward when the tool or flags differ", () => {
   assert.ok(!differentFlags.tags.includes("prod-cluster"));
 });
 
+test("organizeNoteDraft infers a title from the first line and leaves the body untouched", () => {
+  const result = organizeNoteDraft({
+    body: "1. Take a DB snapshot\n2. Run the migration\n3. Verify row counts",
+    annotation: "",
+    tags: []
+  });
+
+  assert.equal(result.title, "1. Take a DB snapshot");
+});
+
+test("organizeNoteDraft does not strip # lines the way command comment extraction does", () => {
+  const result = organizeNoteDraft({
+    body: "# Deploy steps\n1. Build\n2. Push",
+    annotation: "",
+    tags: []
+  });
+
+  assert.equal(result.title, "# Deploy steps");
+});
+
+test("organizeNoteDraft extracts an inline hashtag as a tag", () => {
+  const result = organizeNoteDraft({
+    body: "Steps to rotate credentials #security",
+    annotation: "",
+    tags: []
+  });
+
+  assert.ok(result.tags.includes("security"));
+});
+
+test("organizeNoteDraft reuses an existing tag mentioned in the text", () => {
+  const result = organizeNoteDraft({
+    body: "Runbook for the onboarding flow",
+    annotation: "covers onboarding end to end",
+    tags: ["onboarding"]
+  });
+
+  assert.ok(result.tags.includes("onboarding"));
+});
+
+test("organizeNoteDraft trims the annotation and leaves it empty when not provided", () => {
+  const result = organizeNoteDraft({ body: "Some steps", annotation: "  ", tags: [] });
+
+  assert.equal(result.annotation, "");
+});
+
 test("organizeDrafts carries similar-command tags into every split draft that matches", () => {
   const entries = [
     {
       id: "1",
       title: "kubectl rollout restart deployment/api",
+      type: "command" as const,
       body: "kubectl rollout restart deployment/api",
       annotation: "",
       tags: ["prod-cluster"],
