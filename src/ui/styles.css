@@ -92,8 +92,7 @@ textarea {
 }
 
 .brand small,
-.muted,
-.entry-block small {
+.muted {
   color: #687568;
 }
 
@@ -207,48 +206,8 @@ textarea {
   gap: 10px;
 }
 
-.suggestion-row {
-  display: flex;
-  align-items: center;
-  flex: 1 1 360px;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-.suggestion-row span {
-  border-radius: 999px;
-  background: #e7efdf;
-  color: #334936;
-  font-size: 12px;
-  padding: 5px 9px;
-}
-
-.suggestion-row .suggestion-label {
-  background: transparent;
-  color: #687568;
-  font-family: "Cascadia Mono", Consolas, monospace;
-  text-transform: uppercase;
-}
-
-.suggestion-row small {
-  color: #687568;
-}
-
 .detail-editor {
   display: grid;
-  gap: 10px;
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: 160px 160px 1fr;
-  gap: 10px;
-}
-
-.detail-actions {
-  display: flex;
-  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -260,56 +219,6 @@ textarea {
   display: grid;
   grid-template-columns: 1fr 180px;
   gap: 10px;
-}
-
-.search-form {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(120px, 160px)) auto;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.entry-list {
-  display: grid;
-  gap: 12px;
-}
-
-.entry-block {
-  position: relative;
-  border: 1px solid #d8e2d1;
-  border-radius: 8px;
-  background: #fbfdf8;
-  padding: 14px;
-}
-
-.entry-block p {
-  margin: 0 0 10px;
-}
-
-.entry-block footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.entry-block footer span {
-  border-radius: 999px;
-  background: #e7efdf;
-  color: #334936;
-  font-size: 12px;
-  padding: 4px 8px;
-}
-
-.archive-controls {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.entry-delete {
-  margin-top: 12px;
 }
 
 .annotation-input {
@@ -356,6 +265,11 @@ textarea {
   margin: 0;
 }
 
+.command-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .command-annotation {
   margin: 0 0 8px;
   color: #55705e;
@@ -389,9 +303,6 @@ textarea {
 
 @media (max-width: 980px) {
   .app-shell,
-  .search-form,
-  .archive-controls,
-  .detail-grid,
   .row {
     grid-template-columns: 1fr;
   }

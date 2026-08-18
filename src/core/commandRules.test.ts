@@ -1,19 +1,49 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotateCommand, extractToolTags, looksLikeCommandBlock } from "./commandRules.js";
+import { annotateCommand, extractComments, extractToolTags } from "./commandRules.js";
 
-test("looksLikeCommandBlock recognizes a pure command block", () => {
-  assert.equal(looksLikeCommandBlock("git push --force"), true);
-  assert.equal(looksLikeCommandBlock("sudo systemctl restart nginx"), true);
-  assert.equal(looksLikeCommandBlock("MY_VAR=1 npm run build"), true);
-  assert.equal(looksLikeCommandBlock("# rebuild and restart\ndocker build .\ndocker compose up -d"), true);
+test("extractComments splits a full-line # comment from the command", () => {
+  const result = extractComments("#还原最近一个提交到stage\ngit reset HEAD~1");
+  assert.equal(result.body, "git reset HEAD~1");
+  assert.equal(result.annotation, "还原最近一个提交到stage");
 });
 
-test("looksLikeCommandBlock rejects prose that merely mentions a command", () => {
-  assert.equal(looksLikeCommandBlock("Fixed the incident by running git push --force on main."), false);
-  assert.equal(looksLikeCommandBlock("Root cause: the deploy hung.\ndocker ps showed nothing running."), false);
-  assert.equal(looksLikeCommandBlock(""), false);
-  assert.equal(looksLikeCommandBlock("   \n  "), false);
+test("extractComments splits a trailing # comment from the command", () => {
+  const result = extractComments("git reset HEAD~1  # go back one commit");
+  assert.equal(result.body, "git reset HEAD~1");
+  assert.equal(result.annotation, "go back one commit");
+});
+
+test("extractComments recognizes -- and // comment styles but never CLI flags", () => {
+  const dashComment = extractComments("SELECT 1;\n-- fetch a sanity row");
+  assert.equal(dashComment.body, "SELECT 1;");
+  assert.equal(dashComment.annotation, "fetch a sanity row");
+
+  const slashComment = extractComments("console.log(x); // debug output");
+  assert.equal(slashComment.body, "console.log(x);");
+  assert.equal(slashComment.annotation, "debug output");
+
+  const flag = extractComments("git push --force");
+  assert.equal(flag.body, "git push --force");
+  assert.equal(flag.annotation, "");
+});
+
+test("extractComments never strips a shebang line", () => {
+  const result = extractComments("#!/bin/bash\necho hi");
+  assert.equal(result.body, "#!/bin/bash\necho hi");
+  assert.equal(result.annotation, "");
+});
+
+test("extractComments does not false-positive on URLs containing # or //", () => {
+  const result = extractComments("curl https://example.com/path#section");
+  assert.equal(result.body, "curl https://example.com/path#section");
+  assert.equal(result.annotation, "");
+});
+
+test("extractComments returns no annotation when nothing is commented", () => {
+  const result = extractComments("docker ps");
+  assert.equal(result.body, "docker ps");
+  assert.equal(result.annotation, "");
 });
 
 test("annotateCommand explains recognized commands and skips unrecognized ones", () => {
@@ -21,11 +51,6 @@ test("annotateCommand explains recognized commands and skips unrecognized ones",
   assert.equal(annotateCommand("git status"), "查看 Git 工作区和暂存区状态");
   assert.equal(annotateCommand("docker system prune -af --volumes"), "清理未使用的 Docker 容器、网络和镜像");
   assert.equal(annotateCommand("some-obscure-tool --flag"), "");
-});
-
-test("annotateCommand joins explanations for multiple recognized lines and skips comments", () => {
-  const result = annotateCommand("# build then deploy\ndocker build .\nkubectl apply -f deploy.yaml");
-  assert.equal(result, "根据 Dockerfile 构建镜像\n应用一个 YAML 配置文件到集群");
 });
 
 test("extractToolTags pulls out distinct tool names", () => {

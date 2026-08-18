@@ -2,91 +2,47 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { organizeDraft } from "./organizer.js";
 
-const projects = ["ap2", "billing-system"];
+test("prefers the user's own comment as the annotation over the curated guess", () => {
+  const result = organizeDraft({ body: "# revert last commit\ngit reset HEAD~1", tags: [] });
 
-test("infers project from an existing project value mentioned in the body", () => {
-  const byName = organizeDraft({
-    body: "AP2 deployment failed during rollout.",
-    projects,
-    tags: []
-  });
-  const lowerCase = organizeDraft({
-    body: "ap2 rollback notes after timeout.",
-    projects,
-    tags: []
-  });
-
-  assert.equal(byName.project, "ap2");
-  assert.equal(byName.saveTarget, "project");
-  assert.equal(byName.status, "active");
-  assert.equal(lowerCase.project, "ap2");
-});
-
-test("infers troubleshooting, decision, runbook, reference, and note fallback types", () => {
-  assert.equal(organizeDraft({ body: "Error timeout root cause fixed and verified.", projects, tags: [] }).type, "troubleshooting");
-  assert.equal(organizeDraft({ body: "Decision: choose option B. Trade-off is slower recovery.", projects, tags: [] }).type, "decision");
-  assert.equal(organizeDraft({ body: "Checklist steps: run command sequence, verify, rollback if needed.", projects, tags: [] }).type, "runbook");
-  assert.equal(organizeDraft({ body: "https://example.test/docs\nhttps://example.test/article\nSource summary notes.", projects, tags: [] }).type, "reference");
-  assert.equal(organizeDraft({ body: "Remember to revisit platform naming.", projects, tags: [] }).type, "note");
-});
-
-test("extracts inline tags, technical keywords, and existing tags", () => {
-  const result = organizeDraft({
-    body: "Redis timeout in #AP2 while checking Kubernetes logs and postgres metrics.",
-    projects,
-    tags: ["incident", "kubernetes", "postgres"]
-  });
-
-  assert.deepEqual(result.tags, ["ap2", "redis", "kubernetes", "postgres"]);
-});
-
-test("generates title from Markdown heading or first meaningful line", () => {
-  const heading = organizeDraft({
-    body: "\n# Redis outage notes\n\nRequests timed out.",
-    projects,
-    tags: []
-  });
-  const firstLine = organizeDraft({
-    body: "\n\nBilling queue replay failed because the gateway timed out and this title is intentionally long enough to be truncated at a readable boundary.",
-    projects,
-    tags: []
-  });
-
-  assert.equal(heading.title, "Redis outage notes");
-  assert.ok(firstLine.title.length <= 72);
-  assert.match(firstLine.title, /^Billing queue replay failed/);
-});
-
-test("classifies a recognized command block as type command with an auto-generated annotation and tool tags", () => {
-  const result = organizeDraft({ body: "git push --force", projects, tags: [] });
-
-  assert.equal(result.type, "command");
-  assert.equal(result.annotation, "强制推送，会覆盖远程分支历史，谨慎使用");
+  assert.equal(result.body, "git reset HEAD~1");
+  assert.equal(result.annotation, "revert last commit");
   assert.ok(result.tags.includes("git"));
 });
 
-test("classifies a recognized tool with no curated annotation rule as command with an empty annotation", () => {
-  const result = organizeDraft({ body: "ls -la", projects, tags: [] });
+test("falls back to the curated rule guess when the user wrote no comment", () => {
+  const result = organizeDraft({ body: "git push --force", tags: [] });
 
-  assert.equal(result.type, "command");
-  assert.equal(result.annotation, "");
+  assert.equal(result.body, "git push --force");
+  assert.equal(result.annotation, "强制推送，会覆盖远程分支历史，谨慎使用");
 });
 
-test("does not misclassify prose that only mentions a command as type command", () => {
-  const result = organizeDraft({ body: "some-obscure-tool --flag", projects, tags: [] });
+test("leaves annotation empty when there is no comment and no curated match", () => {
+  const result = organizeDraft({ body: "ls -la", tags: [] });
 
-  assert.notEqual(result.type, "command");
   assert.equal(result.annotation, "");
+  assert.ok(result.tags.includes("ls"));
 });
 
-test("returns inbox draft target when no project is matched", () => {
+test("generates title from the first pure command line, not from a comment line", () => {
+  const result = organizeDraft({ body: "# housekeeping\ndocker system prune -af", tags: [] });
+
+  assert.equal(result.title, "docker system prune -af");
+});
+
+test("keeps tags to short core keywords and rejects an overly long reused tag even when it's mentioned in the text", () => {
+  const longTag = "docker-cleanup-and-prune-everything-unused";
   const result = organizeDraft({
-    body: "Loose note that does not mention a known project.",
-    projects,
-    tags: []
+    body: `# ${longTag} note\ndocker system prune -af`,
+    tags: [longTag]
   });
 
-  assert.equal(result.project, "");
-  assert.equal(result.status, "draft");
-  assert.equal(result.saveTarget, "inbox");
+  assert.ok(result.tags.every((tag) => tag.length <= 24 && !tag.includes(" ")));
+  assert.deepEqual(result.tags, ["docker"]);
+});
+
+test("extracts an inline hashtag from the user's comment as a tag", () => {
+  const result = organizeDraft({ body: "# rollback for #hotfix\ngit reset HEAD~1", tags: [] });
+
+  assert.ok(result.tags.includes("hotfix"));
 });

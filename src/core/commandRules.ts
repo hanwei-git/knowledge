@@ -20,6 +20,8 @@ const ANNOTATION_RULES: AnnotationRule[] = [
   { pattern: /^git\s+pull\b/, describe: "拉取并合并远程分支的最新提交" },
   { pattern: /^git\s+log\b.*--oneline/, describe: "以单行精简格式查看提交历史" },
   { pattern: /^git\s+log\b/, describe: "查看提交历史" },
+  { pattern: /^git\s+reset\b.*--hard/, describe: "丢弃工作区和暂存区的改动，硬重置到指定提交，不可恢复" },
+  { pattern: /^git\s+reset\b/, describe: "回退当前分支到指定提交（默认保留工作区改动）" },
   { pattern: /^git\s+checkout\s+-b\b/, describe: "创建并切换到一个新分支" },
   { pattern: /^git\s+stash\b/, describe: "暂存当前未提交的改动" },
   { pattern: /^git\s+rebase\b.*-i\b/, describe: "交互式变基，可修改/合并/重排提交" },
@@ -47,30 +49,60 @@ const ANNOTATION_RULES: AnnotationRule[] = [
   { pattern: /^systemctl\s+status\b/, describe: "查看一个系统服务的运行状态" }
 ];
 
-export function looksLikeCommandBlock(body: string): boolean {
-  const lines = nonEmptyLines(body);
-  if (!lines.length) {
-    return false;
-  }
-  let hasCommandLine = false;
-  for (const line of lines) {
-    if (line.startsWith("#")) {
+export interface ExtractedComments {
+  body: string;
+  annotation: string;
+}
+
+/**
+ * Splits a raw pasted command block into pure command lines and any comments
+ * the user wrote themselves (#, "-- ", "// " — full-line or trailing). A `#!`
+ * shebang is never treated as a comment. `--flag`/`--force`-style CLI flags
+ * are never mistaken for a "-- comment" because that form requires a space
+ * right after the dashes, which real flags never have.
+ */
+export function extractComments(raw: string): ExtractedComments {
+  const commandLines: string[] = [];
+  const comments: string[] = [];
+
+  for (const rawLine of raw.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) {
       continue;
     }
-    if (!commandTool(line)) {
-      return false;
+
+    if (line.startsWith("#!")) {
+      commandLines.push(line);
+      continue;
     }
-    hasCommandLine = true;
+
+    const fullLineComment = matchFullLineComment(line);
+    if (fullLineComment !== null) {
+      comments.push(fullLineComment);
+      continue;
+    }
+
+    const trailing = matchTrailingComment(line);
+    if (trailing) {
+      if (trailing.command) {
+        commandLines.push(trailing.command);
+      }
+      comments.push(trailing.comment);
+      continue;
+    }
+
+    commandLines.push(line);
   }
-  return hasCommandLine;
+
+  return {
+    body: commandLines.join("\n"),
+    annotation: comments.join("\n")
+  };
 }
 
 export function extractToolTags(body: string): string[] {
   const tools = new Set<string>();
   for (const line of nonEmptyLines(body)) {
-    if (line.startsWith("#")) {
-      continue;
-    }
     const tool = commandTool(line);
     if (tool) {
       tools.add(tool);
@@ -82,15 +114,39 @@ export function extractToolTags(body: string): string[] {
 export function annotateCommand(body: string): string {
   const explanations: string[] = [];
   for (const line of nonEmptyLines(body)) {
-    if (line.startsWith("#")) {
-      continue;
-    }
     const rule = ANNOTATION_RULES.find((candidate) => candidate.pattern.test(line));
     if (rule) {
       explanations.push(rule.describe);
     }
   }
   return explanations.join("\n");
+}
+
+function matchFullLineComment(line: string): string | null {
+  if (line.startsWith("#")) {
+    return line.slice(1).trim();
+  }
+  if (line.startsWith("-- ")) {
+    return line.slice(3).trim();
+  }
+  if (line.startsWith("// ")) {
+    return line.slice(3).trim();
+  }
+  return null;
+}
+
+function matchTrailingComment(line: string): { command: string; comment: string } | null {
+  const patterns = [/\s#\s*(.+)$/, /\s--\s+(.+)$/, /\s\/\/\s*(.+)$/];
+  for (const pattern of patterns) {
+    const match = line.match(pattern);
+    if (match && typeof match.index === "number" && match.index > 0) {
+      return {
+        command: line.slice(0, match.index).trim(),
+        comment: match[1].trim()
+      };
+    }
+  }
+  return null;
 }
 
 function nonEmptyLines(body: string): string[] {
