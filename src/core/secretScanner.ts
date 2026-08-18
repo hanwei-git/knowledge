@@ -88,14 +88,14 @@ const SECRET_RULES: SecretRule[] = [
     redactWith: `$1${REDACTED}`
   },
   // Username and/or password embedded in a URL — password is optional
-  // (bare "scheme://username@host" leaks a real username just as much as
-  // "scheme://user:pass@host" does, e.g. an internal git remote URL).
+  // (bare "scheme://username@host" leaks a real username just as much as // gitleaks:allow
+  // "scheme://user:pass@host" does, e.g. an internal git remote URL). // gitleaks:allow
   {
     label: "Username or credentials embedded in a URL",
     pattern: /\b\w+:\/\/[^\s/:@]+(:[^\s/@]+)?@/,
     // Drop the whole "user[:pass]@" segment (not a [REDACTED] placeholder
     // in its place) — any non-empty placeholder text there still matches
-    // this same "scheme://something@" shape, which would make the
+    // this same "scheme://something@" shape, which would make the // gitleaks:allow
     // redacted result look like it still contains embedded credentials.
     redactPattern: /(\b\w+:\/\/)[^\s/@]+(?::[^\s/@]+)?@/g,
     redactWith: "$1"

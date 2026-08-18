@@ -5,16 +5,20 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-config="$repo_root/.gitleaks.toml"
+cd "$repo_root"
 
+# --source . (relative), not an absolute path: .gitleaks.toml's path
+# allowlist regexes are anchored (e.g. ^dist/.*) and match against
+# whatever --source reports, so this must stay in sync with the CI
+# workflow, which also runs from the repo root with --source .
 if command -v gitleaks >/dev/null 2>&1; then
-  gitleaks protect --staged --source "$repo_root" --config "$config" --redact --verbose
+  gitleaks protect --staged --source . --config .gitleaks.toml --redact --verbose
   exit $?
 fi
 
 if command -v docker >/dev/null 2>&1; then
   docker run --rm -v "$repo_root:/repo" -w /repo zricethezav/gitleaks:latest \
-    protect --staged --source /repo --config /repo/.gitleaks.toml --redact --verbose
+    protect --staged --source . --config .gitleaks.toml --redact --verbose
   exit $?
 fi
 

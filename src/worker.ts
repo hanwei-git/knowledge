@@ -64,7 +64,7 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
 
 async function broadcast(env: Env): Promise<void> {
   const stub = env.SYNC_HUB.get(env.SYNC_HUB.idFromName("singleton"));
-  await stub.fetch("https://sync-hub/broadcast", {
+  await stub.fetch("https://sync-hub/broadcast", { // gitleaks:allow — internal DO fetch target, not a real host
     method: "POST",
     body: JSON.stringify({ type: "entries-changed", at: new Date().toISOString() })
   });

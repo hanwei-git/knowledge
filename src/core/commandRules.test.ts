@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotateCommand, commandSignature, extractComments, extractSeparatedOverview, extractToolTags, normalizeCommandBody, skipLeadingComments, splitCommandUnits } from "./commandRules.js";
+import { annotateCommand, commandSignature, extractComments, extractSeparatedOverview, extractToolTags, isCommentLine, normalizeCommandBody, skipLeadingComments, splitCommandUnits } from "./commandRules.js";
 
 test("extractComments splits a full-line # comment from the command", () => {
   const result = extractComments("#还原最近一个提交到stage\ngit reset HEAD~1");
@@ -162,4 +162,12 @@ test("commandSignature strips a leading sudo before reading the tool", () => {
 test("commandSignature returns null for an empty body", () => {
   assert.equal(commandSignature(""), null);
   assert.equal(commandSignature("   "), null);
+});
+
+test("isCommentLine recognizes #, -- , and // comment lines but not a shebang or a real command", () => {
+  assert.equal(isCommentLine("# force push"), true);
+  assert.equal(isCommentLine("-- fetch a sanity row"), true);
+  assert.equal(isCommentLine("// debug output"), true);
+  assert.equal(isCommentLine("#!/bin/bash"), false);
+  assert.equal(isCommentLine("git push --force"), false);
 });

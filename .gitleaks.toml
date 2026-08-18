@@ -63,4 +63,11 @@ paths = [
   '''^src/core/secretScanner\.test\.ts$''',
   '''^package-lock\.json$''',
   '''^dist/.*''',
+  # Pure CI/tooling scripts: their content is inherently install/download
+  # URLs (github.com release links, API endpoints), none of it sensitive.
+  # Application source files with a one-off legitimate URL use an inline
+  # `// gitleaks:allow` comment instead, so scanning stays on for the rest
+  # of the file — see src/worker.ts and src/core/secretScanner.ts.
+  '''^\.github/workflows/.*''',
+  '''^\.githooks/.*''',
 ]

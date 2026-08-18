@@ -334,12 +334,14 @@ textarea {
 
 .command-line-copy {
   flex: none;
+  width: 16px;
   background: transparent;
   color: #55705e;
   border-radius: 3px;
-  padding: 0 3px;
+  padding: 0;
   font-size: 11px;
   line-height: 1.6;
+  text-align: center;
   opacity: 0.7;
 }
 
@@ -351,6 +353,11 @@ textarea {
 .command-line-copy.copied {
   color: #c6ff47;
   opacity: 1;
+}
+
+.command-line-copy-spacer {
+  flex: none;
+  width: 16px;
 }
 
 .command-card-top {

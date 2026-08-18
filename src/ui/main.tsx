@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createEntry, deleteEntry, getSummary, subscribeToChanges, updateEntry } from "./api.js";
-import { normalizeCommandBody } from "../core/commandRules.js";
+import { isCommentLine, normalizeCommandBody } from "../core/commandRules.js";
 import { inferTitle, organizeDrafts } from "../core/organizer.js";
 import { findSecrets, redactSecrets } from "../core/secretScanner.js";
 import type { Entry, Summary } from "../core/types.js";
@@ -501,10 +501,12 @@ function CommandCard({ entry, onSaved, setNotice }: {
           <button className="ghost" onClick={remove}>Delete</button>
         </div>
       </div>
-      {entry.body.includes("\n") ? (
-        <pre className="command-body command-body-lines">
-          {entry.body.split("\n").map((line, index) => (
-            <span className="command-body-line" key={index}>
+      <pre className="command-body command-body-lines">
+        {entry.body.split("\n").map((line, index) => (
+          <span className="command-body-line" key={index}>
+            {isCommentLine(line) ? (
+              <span className="command-line-copy-spacer" aria-hidden="true" />
+            ) : (
               <button
                 type="button"
                 className={copiedLine === index ? "command-line-copy copied" : "command-line-copy"}
@@ -513,13 +515,11 @@ function CommandCard({ entry, onSaved, setNotice }: {
               >
                 {copiedLine === index ? "✓" : "⧉"}
               </button>
-              <span className="command-body-line-text">{line}</span>
-            </span>
-          ))}
-        </pre>
-      ) : (
-        <pre className="command-body">{entry.body}</pre>
-      )}
+            )}
+            <span className="command-body-line-text">{line}</span>
+          </span>
+        ))}
+      </pre>
     </article>
   );
 }

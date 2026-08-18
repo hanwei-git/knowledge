@@ -290,6 +290,20 @@ export function annotateCommand(body: string): string {
   return explanations.join("\n");
 }
 
+/**
+ * True for a line that is entirely a user comment (#, "-- ", "// " —
+ * never a `#!` shebang, which is always a real command line). Used to
+ * skip per-line affordances (e.g. a copy icon) on comment lines within a
+ * saved command body, since a comment isn't something you'd copy and run.
+ */
+export function isCommentLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.startsWith("#!")) {
+    return false;
+  }
+  return matchFullLineComment(trimmed) !== null;
+}
+
 function matchFullLineComment(line: string): string | null {
   if (line.startsWith("#")) {
     return line.slice(1).trim();
