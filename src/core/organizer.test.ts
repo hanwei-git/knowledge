@@ -87,6 +87,14 @@ test("a combined multi-command draft never treats the first command's own commen
   assert.equal(result.title, "git fetch");
 });
 
+test("a combined multi-command draft extracts a genuine overview only when it's separated from the first command by a blank line", () => {
+  const result = organizeDraft({ body: "# weekly cleanup routine\n\ngit fetch\n# force push\ngit push --force", tags: [] });
+
+  assert.equal(result.annotation, "weekly cleanup routine");
+  assert.equal(result.body, "git fetch\n# force push\ngit push --force");
+  assert.equal(result.title, "git fetch");
+});
+
 test("a combined multi-command draft summarizes all per-line comments as the annotation", () => {
   const result = organizeDraft({ body: "git fetch\n# force push\ngit push --force", tags: [] });
 

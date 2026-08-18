@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotateCommand, extractComments, extractToolTags, normalizeCommandBody, skipLeadingComments, splitCommandUnits } from "./commandRules.js";
+import { annotateCommand, extractComments, extractSeparatedOverview, extractToolTags, normalizeCommandBody, skipLeadingComments, splitCommandUnits } from "./commandRules.js";
 
 test("extractComments splits a full-line # comment from the command", () => {
   const result = extractComments("#还原最近一个提交到stage\ngit reset HEAD~1");
@@ -117,4 +117,28 @@ test("skipLeadingComments is a no-op when the paste already starts with a comman
 
 test("skipLeadingComments never treats a shebang as a leading comment", () => {
   assert.equal(skipLeadingComments("#!/bin/bash\necho hi"), "#!/bin/bash\necho hi");
+});
+
+test("extractSeparatedOverview extracts a leading comment block only when a blank line separates it from the first command", () => {
+  const result = extractSeparatedOverview("# weekly cleanup routine\n\ngit fetch\n# force push\ngit push --force");
+  assert.equal(result.overview, "weekly cleanup routine");
+  assert.equal(result.body, "git fetch\n# force push\ngit push --force");
+});
+
+test("extractSeparatedOverview treats a comment with no blank-line separator as that command's own comment, not an overview", () => {
+  const result = extractSeparatedOverview("# check status\ngit status\n# force push\ngit push --force");
+  assert.equal(result.overview, "");
+  assert.equal(result.body, "# check status\ngit status\n# force push\ngit push --force");
+});
+
+test("extractSeparatedOverview finds nothing to extract when the paste starts with a command", () => {
+  const result = extractSeparatedOverview("git status\n# force push\ngit push --force");
+  assert.equal(result.overview, "");
+  assert.equal(result.body, "git status\n# force push\ngit push --force");
+});
+
+test("extractSeparatedOverview joins a multi-line leading comment block before the blank-line separator", () => {
+  const result = extractSeparatedOverview("# step 1\n# step 2\n\ngit status");
+  assert.equal(result.overview, "step 1\nstep 2");
+  assert.equal(result.body, "git status");
 });

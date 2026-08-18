@@ -201,6 +201,58 @@ export function skipLeadingComments(raw: string): string {
   return remainder || raw.trim();
 }
 
+export interface SeparatedOverview {
+  body: string;
+  overview: string;
+}
+
+/**
+ * Extracts a genuine block-level "overview" comment from a multi-command
+ * paste — but only when it's a leading comment block followed by a blank
+ * line before the first command. That blank line is the signal that the
+ * comment is a general header for the whole snippet, not a label for
+ * whatever command happens to come next. Without that separator, a
+ * leading comment is indistinguishable from an ordinary per-command
+ * comment (the same way one appears before any later command), so it's
+ * left alone — `overview` is empty and `body` is the input unchanged.
+ */
+export function extractSeparatedOverview(raw: string): SeparatedOverview {
+  const lines = raw.split("\n");
+  const overviewLines: string[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line || line.startsWith("#!")) {
+      break;
+    }
+    const comment = matchFullLineComment(line);
+    if (comment === null) {
+      break;
+    }
+    overviewLines.push(comment);
+    index++;
+  }
+
+  if (!overviewLines.length) {
+    return { overview: "", body: raw.trim() };
+  }
+
+  let separatorIndex = index;
+  let sawBlankLine = false;
+  while (separatorIndex < lines.length && lines[separatorIndex].trim() === "") {
+    sawBlankLine = true;
+    separatorIndex++;
+  }
+
+  const remainder = lines.slice(separatorIndex).join("\n").trim();
+  if (!sawBlankLine || !remainder) {
+    return { overview: "", body: raw.trim() };
+  }
+
+  return { overview: overviewLines.join("\n"), body: remainder };
+}
+
 export function annotateCommand(body: string): string {
   const explanations: string[] = [];
   for (const line of nonEmptyLines(body)) {

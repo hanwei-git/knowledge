@@ -1,4 +1,4 @@
-import { annotateCommand, extractComments, extractToolTags, skipLeadingComments, splitCommandUnits, type ExtractedComments } from "./commandRules.js";
+import { annotateCommand, extractComments, extractSeparatedOverview, extractToolTags, skipLeadingComments, splitCommandUnits, type ExtractedComments } from "./commandRules.js";
 
 export interface OrganizeDraftInput {
   body: string;
@@ -59,17 +59,19 @@ function buildDraft(extracted: ExtractedComments, existingTags: string[]): Organ
 }
 
 function buildCombinedDraft(raw: string, existingTags: string[]): OrganizedDraft {
-  // Body is kept exactly as pasted — no comment, including the one before
-  // the first command, is ever stripped out here. The annotation is a
-  // non-destructive summary of whatever comments exist (or the curated
-  // guess if there are none), never a "this one is special" extraction.
-  const annotation = extractComments(raw).annotation || annotateCommand(raw);
+  // A leading comment block only counts as a genuine, block-level overview
+  // — extracted out of the body — when it's separated from the first
+  // command by a blank line (see extractSeparatedOverview). Without that
+  // separator it's indistinguishable from an ordinary per-command comment,
+  // so it stays inline like every other one.
+  const { body, overview } = extractSeparatedOverview(raw);
+  const annotation = overview || extractComments(body).annotation || annotateCommand(body);
 
   return {
-    title: inferTitle(skipLeadingComments(raw)),
-    body: raw,
+    title: inferTitle(skipLeadingComments(body)),
+    body,
     annotation,
-    tags: inferTags(raw, annotation, existingTags)
+    tags: inferTags(body, annotation, existingTags)
   };
 }
 
