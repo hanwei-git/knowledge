@@ -16,7 +16,25 @@ test("detects a GitHub token", () => {
 });
 
 test("detects credentials embedded in a connection URL", () => {
-  assert.ok(findSecrets("psql postgres://admin:sup3rSecret@db.example.com/prod").includes("Credentials embedded in a URL"));
+  assert.ok(findSecrets("psql postgres://admin:sup3rSecret@db.example.com/prod").includes("Username or credentials embedded in a URL"));
+});
+
+test("detects a bare username embedded in a URL with no password", () => {
+  assert.ok(findSecrets("git remote set-url origin http://deploy_bot@10.20.30.40/org/repo.git").includes("Username or credentials embedded in a URL"));
+});
+
+test("detects an internal/private IP address", () => {
+  assert.ok(findSecrets("curl http://172.16.5.1/health").includes("Internal/private IP address"));
+  assert.ok(findSecrets("ssh admin@10.0.0.5").includes("Internal/private IP address"));
+  assert.ok(findSecrets("mysql -h 192.168.1.20").includes("Internal/private IP address"));
+  assert.deepEqual(findSecrets("curl http://8.8.8.8"), []);
+  assert.deepEqual(findSecrets("curl http://172.32.5.103"), []);
+});
+
+test("flags a git remote URL containing a username, internal IP, and internal path all at once", () => {
+  const findings = findSecrets("git remote set-url origin http://deploy_bot@10.20.30.40/internal-tools/backend/service.git");
+  assert.ok(findings.includes("Username or credentials embedded in a URL"));
+  assert.ok(findings.includes("Internal/private IP address"));
 });
 
 test("detects a database CLI inline password", () => {

@@ -24,9 +24,16 @@ const SECRET_RULES: SecretRule[] = [
   { label: "Generic API-style secret key", pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
   { label: "JSON Web Token", pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/ },
   { label: "Bearer token", pattern: /Authorization:\s*Bearer\s+\S+/i },
-  { label: "Credentials embedded in a URL", pattern: /\b\w+:\/\/[^\s/:@]+:[^\s/@]+@/ },
+  // Username and/or password embedded in a URL — password is optional
+  // (bare "scheme://username@host" leaks a real username just as much as
+  // "scheme://user:pass@host" does, e.g. an internal git remote URL).
+  { label: "Username or credentials embedded in a URL", pattern: /\b\w+:\/\/[^\s/:@]+(:[^\s/@]+)?@/ },
   { label: "Inline password/secret assignment", pattern: /(password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*\S+/i },
-  { label: "Database CLI inline password", pattern: /\b(mysql|psql|pg_dump|pg_restore|mongo|redis-cli)\b[^\n]*\s-p\S+/ }
+  { label: "Database CLI inline password", pattern: /\b(mysql|psql|pg_dump|pg_restore|mongo|redis-cli)\b[^\n]*\s-p\S+/ },
+  // RFC1918 private ranges (10.x, 172.16-31.x, 192.168.x) plus loopback —
+  // an internal IP in a saved command usually implies internal
+  // infrastructure (hostnames, paths) alongside it, as in a git remote URL.
+  { label: "Internal/private IP address", pattern: /\b(10(?:\.\d{1,3}){3}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2}|127(?:\.\d{1,3}){3})\b/ }
 ];
 
 export function findSecrets(text: string): string[] {
