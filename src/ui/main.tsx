@@ -64,7 +64,6 @@ function App() {
             <p className="eyebrow">Synced live across devices</p>
             <h1>{labelView(view)}</h1>
           </div>
-          <button className="ghost" onClick={() => refresh().then(() => setNotice("Refreshed"))}>Refresh</button>
         </header>
 
         {view === "capture" && <CaptureWorkspace summary={summary} onSaved={refresh} setNotice={setNotice} />}
