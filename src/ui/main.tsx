@@ -10,7 +10,7 @@ type View = "capture" | "commands";
 const emptySummary: Summary = { entries: [], tags: [] };
 
 function App() {
-  const [view, setView] = useState<View>("capture");
+  const [view, setView] = useState<View>("commands");
   const [summary, setSummary] = useState<Summary>(emptySummary);
   const [notice, setNotice] = useState("");
 
@@ -44,7 +44,7 @@ function App() {
           </div>
         </div>
         <nav>
-          {(["capture", "commands"] as View[]).map((item) => (
+          {(["commands", "capture"] as View[]).map((item) => (
             <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}>
               {labelView(item)}
             </button>
@@ -77,6 +77,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   const [rawInput, setRawInput] = useState("");
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [tagsOverride, setTagsOverride] = useState<string[] | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
   const [annotationOverride, setAnnotationOverride] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -90,6 +91,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
     setRawInput("");
     setTitleOverride(null);
     setTagsOverride(null);
+    setTagDraft("");
     setAnnotationOverride(null);
     setError("");
   }
@@ -123,6 +125,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
           setRawInput(event.target.value);
           setTitleOverride(null);
           setTagsOverride(null);
+          setTagDraft("");
           setAnnotationOverride(null);
           setError("");
         }}
@@ -138,7 +141,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
       <div className="panel detail-editor">
         <div className="row">
           <input value={title} onChange={(event) => setTitleOverride(event.target.value)} placeholder="Title" />
-          <input value={tags.join(", ")} onChange={(event) => setTagsOverride(splitTags(event.target.value))} placeholder="tags" />
+          <TagInput tags={tags} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
         </div>
         <textarea
           className="annotation-input"
@@ -151,6 +154,68 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
         <button onClick={save} disabled={saving}>Save</button>
       </div>
     </section>
+  );
+}
+
+function TagInput({ tags, draftValue, onDraftChange, onChange }: {
+  tags: string[];
+  draftValue: string;
+  onDraftChange: (value: string) => void;
+  onChange: (tags: string[]) => void;
+}) {
+  function addTags(values: string[]) {
+    const next = [...tags];
+    for (const value of values) {
+      const clean = value.trim().toLowerCase();
+      if (clean && !next.includes(clean)) {
+        next.push(clean);
+      }
+    }
+    onChange(next);
+  }
+
+  function commit() {
+    if (draftValue.trim()) {
+      addTags([draftValue]);
+    }
+    onDraftChange("");
+  }
+
+  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const value = event.target.value;
+    if (value.includes(",")) {
+      addTags(splitTags(value));
+      onDraftChange("");
+      return;
+    }
+    onDraftChange(value);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit();
+    } else if (event.key === "Backspace" && !draftValue && tags.length) {
+      onChange(tags.slice(0, -1));
+    }
+  }
+
+  return (
+    <div className="tag-input">
+      {tags.map((tag) => (
+        <span key={tag} className="tag-chip">
+          #{tag}
+          <button type="button" onClick={() => onChange(tags.filter((item) => item !== tag))} aria-label={`Remove tag ${tag}`}>×</button>
+        </span>
+      ))}
+      <input
+        value={draftValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={commit}
+        placeholder={tags.length ? "" : "tags"}
+      />
+    </div>
   );
 }
 
@@ -213,15 +278,17 @@ function Commands({ entries, onSaved, setNotice }: {
       <div className="command-list">
         {filtered.map((entry) => (
           <article className="command-card" key={entry.id}>
-            <pre className="command-body">{entry.body}</pre>
-            <div className="command-meta">
-              {entry.annotation && <span className="command-annotation">{entry.annotation}</span>}
-              {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
-              <span className="command-meta-actions">
+            <div className="command-card-top">
+              <div className="command-tags">
+                {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
+              </div>
+              <div className="command-actions">
                 <button className="ghost" onClick={() => copy(entry)}>Copy</button>
                 <button className="ghost" onClick={() => remove(entry)}>Delete</button>
-              </span>
+              </div>
             </div>
+            {entry.annotation && <p className="command-annotation">{entry.annotation}</p>}
+            <pre className="command-body">{entry.body}</pre>
           </article>
         ))}
       </div>
