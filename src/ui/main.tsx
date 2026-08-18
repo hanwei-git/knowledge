@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import ReactMarkdown from "react-markdown";
 import { createEntry, deleteEntry, getSummary, subscribeToChanges, updateEntry } from "./api.js";
 import { isCommentLine, normalizeCommandBody } from "../core/commandRules.js";
 import { inferTitle, organizeDrafts, organizeNoteDraft } from "../core/organizer.js";
@@ -441,8 +442,8 @@ function NoteCaptureWorkspace({ summary, onSaved, setNotice, compact }: { summar
         }}
         placeholder={
           compact
-            ? "Add a note... (steps or freeform text)"
-            : "Write a sequence of steps or freeform notes. Use #hashtags for tags.\nShift+Enter for a new line."
+            ? "Add a note... (steps or freeform text, Markdown supported)"
+            : "Write a sequence of steps or freeform notes. Markdown (**bold**, # headings, - lists, `code`) is rendered once saved. Use #hashtags for tags.\nShift+Enter for a new line."
         }
       />
       {error && <p className="error inline-error">{error}</p>}
@@ -634,7 +635,9 @@ function NoteCard({ entry, onSaved, setNotice }: {
           <button className="ghost" onClick={remove}>Delete</button>
         </div>
       </div>
-      <pre className="command-body note-body">{entry.body}</pre>
+      <div className="command-body note-body">
+        <ReactMarkdown>{entry.body}</ReactMarkdown>
+      </div>
     </article>
   );
 }
