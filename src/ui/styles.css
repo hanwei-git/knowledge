@@ -206,6 +206,12 @@ textarea {
   gap: 12px;
 }
 
+.capture-workspace.compact {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #d8e2d1;
+}
+
 .capture-input {
   min-height: 96px;
   max-height: 40vh;
@@ -215,6 +221,11 @@ textarea {
   font-family: "Cascadia Mono", Consolas, monospace;
   line-height: 1.5;
   padding: 12px 14px;
+}
+
+.capture-input.compact {
+  min-height: 44px;
+  max-height: 96px;
 }
 
 .capture-actions {

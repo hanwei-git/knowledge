@@ -67,7 +67,7 @@ function App() {
         </header>
 
         {view === "capture" && <CaptureWorkspace summary={summary} onSaved={refresh} setNotice={setNotice} />}
-        {view === "commands" && <Commands entries={summary.entries} onSaved={refresh} setNotice={setNotice} />}
+        {view === "commands" && <Commands summary={summary} onSaved={refresh} setNotice={setNotice} />}
       </section>
 
       {notice && <div className="toast">{notice}</div>}
@@ -75,7 +75,7 @@ function App() {
   );
 }
 
-function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
+function CaptureWorkspace({ summary, onSaved, setNotice, compact }: { summary: Summary; onSaved: () => Promise<void>; setNotice: (value: string) => void; compact?: boolean }) {
   const [rawInput, setRawInput] = useState("");
   const [splitEnabled, setSplitEnabled] = useState(true);
   const [bodyOverride, setBodyOverride] = useState<string | null>(null);
@@ -98,6 +98,7 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   const annotation = single ? annotationOverride ?? draft.annotation : draft.annotation;
   const duplicateOf = single ? findDuplicate(body, summary.entries) : undefined;
   const secretFindings = single ? findSecrets(`${title}\n${body}\n${annotation}`) : [];
+  const expanded = !compact || rawInput.trim().length > 0;
 
   function resetCapture() {
     setRawInput("");
@@ -169,10 +170,10 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   }
 
   return (
-    <section className="capture-workspace">
+    <section className={compact ? "capture-workspace compact" : "capture-workspace"}>
       <textarea
-        autoFocus
-        className="capture-input"
+        autoFocus={!compact}
+        className={compact ? "capture-input compact" : "capture-input"}
         value={rawInput}
         onChange={(event) => {
           setRawInput(event.target.value);
@@ -188,15 +189,21 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
             save();
           }
         }}
-        placeholder={"Paste one or more commands. Use # / -- / // for your own comments.\nEnter to save, Shift+Enter for a new line."}
+        placeholder={
+          compact
+            ? "Add a command... (Enter to save, Shift+Enter for a new line)"
+            : "Paste one or more commands. Use # / -- / // for your own comments.\nEnter to save, Shift+Enter for a new line."
+        }
       />
       {error && <p className="error inline-error">{error}</p>}
+      {expanded && (
       <label className="split-toggle">
         <input type="checkbox" checked={splitEnabled} onChange={(event) => setSplitEnabled(event.target.checked)} />
         Split multiple commands into separate entries
       </label>
+      )}
 
-      {single ? (
+      {expanded && (single ? (
         <div className="panel detail-editor">
           {duplicateOf && <p className="duplicate-warning">Looks like a duplicate of "{duplicateOf.title}"</p>}
           {secretFindings.length > 0 && (
@@ -244,11 +251,13 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
             })}
           </div>
         </div>
-      )}
+      ))}
 
+      {expanded && (
       <div className="capture-actions">
         <button onClick={save} disabled={saving}>{single ? "Save" : `Save ${drafts.length} commands`}</button>
       </div>
+      )}
     </section>
   );
 }
@@ -315,13 +324,14 @@ function TagInput({ tags, draftValue, onDraftChange, onChange }: {
   );
 }
 
-function Commands({ entries, onSaved, setNotice }: {
-  entries: Entry[];
+function Commands({ summary, onSaved, setNotice }: {
+  summary: Summary;
   onSaved: () => Promise<void>;
   setNotice: (value: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [activeTag, setActiveTag] = useState("");
+  const entries = summary.entries;
 
   const tags = [...new Set(entries.flatMap((entry) => entry.tags))].sort();
 
@@ -334,6 +344,7 @@ function Commands({ entries, onSaved, setNotice }: {
 
   return (
     <section className="panel">
+      <CaptureWorkspace summary={summary} onSaved={onSaved} setNotice={setNotice} compact />
       <input
         className="command-filter"
         value={query}
