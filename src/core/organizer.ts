@@ -1,4 +1,4 @@
-import { annotateCommand, extractComments, extractToolTags } from "./commandRules.js";
+import { annotateCommand, extractComments, extractToolTags, splitCommandUnits, type ExtractedComments } from "./commandRules.js";
 
 export interface OrganizeDraftInput {
   body: string;
@@ -15,14 +15,37 @@ export interface OrganizedDraft {
 const TAG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,23}$/;
 
 export function organizeDraft(input: OrganizeDraftInput): OrganizedDraft {
-  const { body, annotation: writtenAnnotation } = extractComments(input.body.trim());
-  const annotation = writtenAnnotation || annotateCommand(body);
+  const extracted = extractComments(input.body.trim());
+  return buildDraft(extracted, input.tags);
+}
+
+/**
+ * Like organizeDraft, but when `split` is true and the pasted body contains
+ * more than one command line, returns one OrganizedDraft per command
+ * (see splitCommandUnits) instead of combining everything into one. Falls
+ * back to the single-draft behavior when `split` is false or only one
+ * command is present.
+ */
+export function organizeDrafts(input: OrganizeDraftInput & { split: boolean }): OrganizedDraft[] {
+  if (!input.split) {
+    return [organizeDraft(input)];
+  }
+  const units = splitCommandUnits(input.body.trim());
+  if (units.length <= 1) {
+    return [organizeDraft(input)];
+  }
+  return units.map((unit) => buildDraft(unit, input.tags));
+}
+
+function buildDraft(extracted: ExtractedComments, existingTags: string[]): OrganizedDraft {
+  const { body } = extracted;
+  const annotation = extracted.annotation || annotateCommand(body);
 
   return {
     title: inferTitle(body),
     body,
     annotation,
-    tags: inferTags(body, annotation, input.tags)
+    tags: inferTags(body, annotation, existingTags)
   };
 }
 

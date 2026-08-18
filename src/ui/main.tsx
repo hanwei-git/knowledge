@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createEntry, deleteEntry, getSummary, subscribeToChanges } from "./api.js";
-import { organizeDraft } from "../core/organizer.js";
-import type { CreateEntryInput, Entry, Summary } from "../core/types.js";
+import { organizeDrafts } from "../core/organizer.js";
+import type { Entry, Summary } from "../core/types.js";
 import "./styles.css";
 
 type View = "capture" | "commands";
@@ -75,6 +75,7 @@ function App() {
 
 function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
   const [rawInput, setRawInput] = useState("");
+  const [splitEnabled, setSplitEnabled] = useState(true);
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [tagsOverride, setTagsOverride] = useState<string[] | null>(null);
   const [tagDraft, setTagDraft] = useState("");
@@ -82,10 +83,15 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const draft = useMemo(() => organizeDraft({ body: rawInput, tags: summary.tags }), [rawInput, summary.tags]);
-  const title = titleOverride ?? draft.title;
-  const tags = tagsOverride ?? draft.tags;
-  const annotation = annotationOverride ?? draft.annotation;
+  const drafts = useMemo(
+    () => organizeDrafts({ body: rawInput, tags: summary.tags, split: splitEnabled }),
+    [rawInput, summary.tags, splitEnabled]
+  );
+  const single = drafts.length === 1;
+  const draft = drafts[0];
+  const title = single ? titleOverride ?? draft.title : draft.title;
+  const tags = single ? tagsOverride ?? draft.tags : draft.tags;
+  const annotation = single ? annotationOverride ?? draft.annotation : draft.annotation;
 
   function resetCapture() {
     setRawInput("");
@@ -103,10 +109,16 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
     }
     setSaving(true);
     try {
-      const input: CreateEntryInput = { title, body: draft.body, annotation, tags };
-      await createEntry(input);
+      if (single) {
+        await createEntry({ title, body: draft.body, annotation, tags });
+        setNotice("Command saved");
+      } else {
+        for (const item of drafts) {
+          await createEntry({ title: item.title, body: item.body, annotation: item.annotation, tags: item.tags });
+        }
+        setNotice(`Saved ${drafts.length} commands`);
+      }
       resetCapture();
-      setNotice("Command saved");
       await onSaved();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -135,23 +147,43 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; o
             save();
           }
         }}
-        placeholder={"Paste a command. Use # / -- / // for your own comment.\nEnter to save, Shift+Enter for a new line."}
+        placeholder={"Paste one or more commands. Use # / -- / // for your own comments.\nEnter to save, Shift+Enter for a new line."}
       />
       {error && <p className="error inline-error">{error}</p>}
-      <div className="panel detail-editor">
-        <div className="row">
-          <input value={title} onChange={(event) => setTitleOverride(event.target.value)} placeholder="Title" />
-          <TagInput tags={tags} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
+      <label className="split-toggle">
+        <input type="checkbox" checked={splitEnabled} onChange={(event) => setSplitEnabled(event.target.checked)} />
+        Split multiple commands into separate entries
+      </label>
+
+      {single ? (
+        <div className="panel detail-editor">
+          <div className="row">
+            <input value={title} onChange={(event) => setTitleOverride(event.target.value)} placeholder="Title" />
+            <TagInput tags={tags} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
+          </div>
+          <textarea
+            className="annotation-input"
+            value={annotation}
+            onChange={(event) => setAnnotationOverride(event.target.value)}
+            placeholder="What does this do? (auto-filled from your comment, or a guess when recognized)"
+          />
         </div>
-        <textarea
-          className="annotation-input"
-          value={annotation}
-          onChange={(event) => setAnnotationOverride(event.target.value)}
-          placeholder="What does this do? (auto-filled from your comment, or a guess when recognized)"
-        />
-      </div>
+      ) : (
+        <div className="panel detail-editor">
+          <p className="muted">{drafts.length} commands detected — each will be saved as its own entry.</p>
+          <div className="draft-preview-list">
+            {drafts.map((item, index) => (
+              <div className="draft-preview" key={index}>
+                <pre className="command-body">{item.body}</pre>
+                {item.annotation && <p className="command-annotation">{item.annotation}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="capture-actions">
-        <button onClick={save} disabled={saving}>Save</button>
+        <button onClick={save} disabled={saving}>{single ? "Save" : `Save ${drafts.length} commands`}</button>
       </div>
     </section>
   );

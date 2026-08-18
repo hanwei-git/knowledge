@@ -222,6 +222,34 @@ textarea {
   gap: 10px;
 }
 
+.split-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #55705e;
+  font-size: 13px;
+}
+
+.split-toggle input {
+  width: auto;
+}
+
+.draft-preview-list {
+  display: grid;
+  gap: 8px;
+}
+
+.draft-preview {
+  border: 1px solid #d8e2d1;
+  border-radius: 8px;
+  background: #fbfdf8;
+  padding: 8px 10px;
+}
+
+.draft-preview .command-annotation {
+  margin: 4px 0 0;
+}
+
 .inline-error {
   margin: 0;
 }

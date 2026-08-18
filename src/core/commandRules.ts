@@ -100,6 +100,49 @@ export function extractComments(raw: string): ExtractedComments {
   };
 }
 
+/**
+ * Splits a raw pasted block into one unit per command line, pairing each
+ * command with the comment(s) that belong to it: any full-line comments
+ * directly preceding it (consumed, not shared with later lines) plus its
+ * own trailing comment if it has one. Two command lines with nothing
+ * (comment or otherwise) between them are still split into two units —
+ * this is the "one line = one command" reading used when the user opts
+ * into splitting a multi-command paste into individual entries.
+ */
+export function splitCommandUnits(raw: string): ExtractedComments[] {
+  const units: ExtractedComments[] = [];
+  let pendingComments: string[] = [];
+
+  for (const rawLine of raw.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    if (line.startsWith("#!")) {
+      units.push({ body: line, annotation: pendingComments.join("\n") });
+      pendingComments = [];
+      continue;
+    }
+
+    const fullLineComment = matchFullLineComment(line);
+    if (fullLineComment !== null) {
+      pendingComments.push(fullLineComment);
+      continue;
+    }
+
+    const trailing = matchTrailingComment(line);
+    const comments = trailing ? [...pendingComments, trailing.comment] : pendingComments;
+    const command = trailing ? trailing.command : line;
+    if (command) {
+      units.push({ body: command, annotation: comments.join("\n") });
+    }
+    pendingComments = [];
+  }
+
+  return units;
+}
+
 export function extractToolTags(body: string): string[] {
   const tools = new Set<string>();
   for (const line of nonEmptyLines(body)) {

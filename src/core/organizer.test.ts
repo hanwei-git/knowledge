@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { organizeDraft } from "./organizer.js";
+import { organizeDraft, organizeDrafts } from "./organizer.js";
 
 test("prefers the user's own comment as the annotation over the curated guess", () => {
   const result = organizeDraft({ body: "# revert last commit\ngit reset HEAD~1", tags: [] });
@@ -45,4 +45,30 @@ test("extracts an inline hashtag from the user's comment as a tag", () => {
   const result = organizeDraft({ body: "# rollback for #hotfix\ngit reset HEAD~1", tags: [] });
 
   assert.ok(result.tags.includes("hotfix"));
+});
+
+test("organizeDrafts splits a multi-command paste into separate drafts when split is true", () => {
+  const results = organizeDrafts({ body: "# check status\ngit status\n# force push\ngit push --force", tags: [], split: true });
+
+  assert.equal(results.length, 2);
+  assert.equal(results[0].body, "git status");
+  assert.equal(results[0].annotation, "check status");
+  assert.equal(results[1].body, "git push --force");
+  assert.equal(results[1].annotation, "force push");
+});
+
+test("organizeDrafts keeps a multi-command paste as one draft when split is false", () => {
+  const results = organizeDrafts({ body: "git status\ngit push --force", tags: [], split: false });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].body, "git status\ngit push --force");
+});
+
+test("organizeDrafts returns a single draft for a single command regardless of split", () => {
+  const split = organizeDrafts({ body: "git status", tags: [], split: true });
+  const combined = organizeDrafts({ body: "git status", tags: [], split: false });
+
+  assert.equal(split.length, 1);
+  assert.equal(combined.length, 1);
+  assert.deepEqual(split[0], combined[0]);
 });

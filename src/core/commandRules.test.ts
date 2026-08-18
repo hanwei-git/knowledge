@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotateCommand, extractComments, extractToolTags } from "./commandRules.js";
+import { annotateCommand, extractComments, extractToolTags, splitCommandUnits } from "./commandRules.js";
 
 test("extractComments splits a full-line # comment from the command", () => {
   const result = extractComments("#还原最近一个提交到stage\ngit reset HEAD~1");
@@ -56,4 +56,41 @@ test("annotateCommand explains recognized commands and skips unrecognized ones",
 test("extractToolTags pulls out distinct tool names", () => {
   assert.deepEqual(extractToolTags("docker build .\nkubectl apply -f deploy.yaml\ndocker ps"), ["docker", "kubectl"]);
   assert.deepEqual(extractToolTags("Just a note with no commands."), []);
+});
+
+test("splitCommandUnits pairs each command with its own preceding comment", () => {
+  const units = splitCommandUnits("# check status\ngit status\n# force push\ngit push --force");
+  assert.deepEqual(units, [
+    { body: "git status", annotation: "check status" },
+    { body: "git push --force", annotation: "force push" }
+  ]);
+});
+
+test("splitCommandUnits splits consecutive command lines with no comment between them", () => {
+  const units = splitCommandUnits("git status\ngit push --force");
+  assert.deepEqual(units, [
+    { body: "git status", annotation: "" },
+    { body: "git push --force", annotation: "" }
+  ]);
+});
+
+test("splitCommandUnits attaches a trailing same-line comment only to its own line", () => {
+  const units = splitCommandUnits("git status # check first\ngit push --force");
+  assert.deepEqual(units, [
+    { body: "git status", annotation: "check first" },
+    { body: "git push --force", annotation: "" }
+  ]);
+});
+
+test("splitCommandUnits does not carry a comment over to a second command line", () => {
+  const units = splitCommandUnits("# housekeeping\ngit fetch\ngit gc");
+  assert.deepEqual(units, [
+    { body: "git fetch", annotation: "housekeeping" },
+    { body: "git gc", annotation: "" }
+  ]);
+});
+
+test("splitCommandUnits ignores blank lines between commands", () => {
+  const units = splitCommandUnits("git status\n\ngit push --force");
+  assert.equal(units.length, 2);
 });
