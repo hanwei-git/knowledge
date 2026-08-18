@@ -1,25 +1,23 @@
-import React, { FormEvent, useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { createEntry, deleteEntry, getSummary, organizeCapture, searchEntries, subscribeToChanges, updateEntry } from "./api.js";
-import type { OrganizedDraft } from "../core/organizer.js";
-import type { CreateEntryInput, Entry, EntryStatus, EntryType, SearchFilters, Summary } from "../core/types.js";
+import { createEntry, deleteEntry, getSummary, subscribeToChanges, updateEntry } from "./api.js";
+import { isCommentLine, normalizeCommandBody } from "../core/commandRules.js";
+import { inferTitle, organizeDrafts } from "../core/organizer.js";
+import { findSecrets, redactSecrets } from "../core/secretScanner.js";
+import type { Entry, Summary } from "../core/types.js";
 import "./styles.css";
 
-type View = "capture" | "browse";
+type View = "capture" | "commands";
 
-const entryTypes: EntryType[] = ["troubleshooting", "decision", "reference", "runbook", "note"];
-const statuses: EntryStatus[] = ["draft", "active", "archived"];
-const emptySummary: Summary = { entries: [], projects: [], tags: [] };
+const emptySummary: Summary = { entries: [], tags: [] };
 
 function App() {
-  const [view, setView] = useState<View>("capture");
+  const [view, setView] = useState<View>("commands");
   const [summary, setSummary] = useState<Summary>(emptySummary);
-  const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("");
 
   async function refresh() {
     setSummary(await getSummary());
-    setRevision((value) => value + 1);
   }
 
   useEffect(() => {
@@ -29,7 +27,13 @@ function App() {
     });
   }, []);
 
-  const draftCount = summary.entries.filter((entry) => entry.status === "draft").length;
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+    const timer = setTimeout(() => setNotice(""), 2500);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   return (
     <main className="app-shell">
@@ -37,20 +41,19 @@ function App() {
         <div className="brand">
           <span className="brand-mark">kb</span>
           <div>
-            <strong>Knowledge</strong>
-            <small>Cloud-synced notes</small>
+            <strong>Commands</strong>
+            <small>Cloud-synced command snippets</small>
           </div>
         </div>
         <nav>
-          {(["capture", "browse"] as View[]).map((item) => (
+          {(["commands", "capture"] as View[]).map((item) => (
             <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}>
               {labelView(item)}
             </button>
           ))}
         </nav>
         <div className="sidebar-note">
-          <span>{summary.entries.length}</span> entries
-          <span>{draftCount}</span> to triage
+          <span>{summary.entries.length}</span> commands
         </div>
       </aside>
 
@@ -63,284 +66,398 @@ function App() {
           <button className="ghost" onClick={() => refresh().then(() => setNotice("Refreshed"))}>Refresh</button>
         </header>
 
-        {notice && <div className="notice">{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
-
         {view === "capture" && <CaptureWorkspace summary={summary} onSaved={refresh} setNotice={setNotice} />}
-        {view === "browse" && <Browse revision={revision} projects={summary.projects} tags={summary.tags} onSaved={refresh} setNotice={setNotice} />}
+        {view === "commands" && <Commands summary={summary} onSaved={refresh} setNotice={setNotice} />}
       </section>
+
+      {notice && <div className="toast">{notice}</div>}
     </main>
   );
 }
 
-function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
-  const [body, setBody] = useState("");
-  const [draft, setDraft] = useState<OrganizedDraft | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+function CaptureWorkspace({ summary, onSaved, setNotice, compact }: { summary: Summary; onSaved: () => Promise<void>; setNotice: (value: string) => void; compact?: boolean }) {
+  const [rawInput, setRawInput] = useState("");
+  const [splitEnabled, setSplitEnabled] = useState(true);
+  const [bodyOverride, setBodyOverride] = useState<string | null>(null);
+  const [tagsOverride, setTagsOverride] = useState<string[] | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
+  const [annotationOverride, setAnnotationOverride] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
-  async function saveInbox() {
-    if (!validateBody(body)) {
-      return;
-    }
-    await save({
-      title: titleFromBody(body),
-      body: body.trim(),
-      tags: [],
-      type: "note",
-      project: "",
-      status: "draft",
-      source: ""
-    }, "Saved to inbox for review");
+  const drafts = useMemo(
+    () => organizeDrafts({ body: rawInput, tags: summary.tags, entries: summary.entries, split: splitEnabled }),
+    [rawInput, summary.tags, summary.entries, splitEnabled]
+  );
+  const single = drafts.length === 1;
+  const draft = drafts[0];
+  const body = single ? bodyOverride ?? draft.body : draft.body;
+  const title = single ? inferTitle(body) : draft.title;
+  const tags = single ? tagsOverride ?? draft.tags : draft.tags;
+  const annotation = single ? annotationOverride ?? draft.annotation : draft.annotation;
+  const duplicateOf = single ? findDuplicate(body, summary.entries) : undefined;
+  const secretFindings = single ? findSecrets(`${title}\n${body}\n${annotation}`) : [];
+  const expanded = !compact || rawInput.trim().length > 0;
+
+  function resetCapture() {
+    setRawInput("");
+    setBodyOverride(null);
+    setTagsOverride(null);
+    setTagDraft("");
+    setAnnotationOverride(null);
+    setError("");
   }
 
-  async function organizeAndSave() {
-    if (!validateBody(body)) {
-      return;
-    }
-    const organized = await ensureDraft();
-    await save({
-      title: organized.title,
-      body: organized.body,
-      tags: organized.tags,
-      type: organized.type,
-      project: organized.project,
-      status: organized.status,
-      source: organized.source
-    }, organized.project ? `Saved to ${organized.project}` : "Saved to inbox; project needs review");
+  function redactSensitiveInfo() {
+    setBodyOverride(redactSecrets(body));
+    setAnnotationOverride(redactSecrets(annotation));
   }
 
-  async function save(input: CreateEntryInput, message: string) {
+  async function save() {
+    if (savingRef.current) {
+      return;
+    }
+    if (!rawInput.trim()) {
+      setError("Paste or type a command before saving.");
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
     try {
-      await createEntry(input);
+      const toSave = single
+        ? [{ title, body, annotation }]
+        : drafts.map((item) => ({ title: item.title, body: item.body, annotation: item.annotation }));
+
+      const concerns: string[] = [];
+      const seenInBatch = new Set<string>();
+      for (const item of toSave) {
+        const label = item.body.split("\n")[0];
+        const normalized = normalizeCommandBody(item.body);
+        const existing = findDuplicate(item.body, summary.entries);
+        if (existing) {
+          concerns.push(`"${label}" looks like a duplicate of an existing command ("${existing.title}")`);
+        } else if (seenInBatch.has(normalized)) {
+          concerns.push(`"${label}" appears more than once in this paste`);
+        }
+        seenInBatch.add(normalized);
+
+        const secretFindings = findSecrets(`${item.title}\n${item.body}\n${item.annotation}`);
+        if (secretFindings.length) {
+          concerns.push(`"${label}" may contain sensitive information (${secretFindings.join(", ")})`);
+        }
+      }
+      if (concerns.length && !window.confirm(`Before saving:\n\n${concerns.join("\n")}\n\nSave anyway?`)) {
+        return;
+      }
+      if (single) {
+        await createEntry({ title, body, annotation, tags });
+        setNotice("Command saved");
+      } else {
+        for (const item of drafts) {
+          await createEntry({ title: item.title, body: item.body, annotation: item.annotation, tags: mergeTags(item.tags, tagsOverride ?? []) });
+        }
+        setNotice(`Saved ${drafts.length} commands`);
+      }
       resetCapture();
-      setNotice(message);
       await onSaved();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
-  async function reviewDetails() {
-    if (!validateBody(body)) {
-      return;
-    }
-    try {
-      await ensureDraft();
-      setDetailsOpen(true);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function ensureDraft(): Promise<OrganizedDraft> {
-    if (draft) {
-      return draft;
-    }
-    const organized = await organizeCapture(body);
-    setDraft(organized);
-    return organized;
-  }
-
-  function updateDraft(updates: Partial<OrganizedDraft>) {
-    setDraft((current) => current ? { ...current, ...updates } : current);
-  }
-
-  function validateBody(value: string): boolean {
-    if (!value.trim()) {
-      setError("Paste or type something before saving.");
-      return false;
-    }
-    setError("");
-    return true;
-  }
-
-  function resetCapture() {
-    setBody("");
-    setDraft(null);
-    setDetailsOpen(false);
-    setError("");
-  }
-
-  const suggestion = draft ?? {
-    project: "",
-    type: "note" as EntryType,
-    tags: [] as string[],
-    status: "draft" as EntryStatus,
-    source: "",
-    title: titleFromBody(body),
-    body,
-    saveTarget: "inbox" as const,
-    reason: body.trim() ? "Ready to organize on save." : "Waiting for input."
-  };
-
   return (
-    <section className="capture-workspace">
+    <section className={compact ? "capture-workspace compact" : "capture-workspace"}>
       <textarea
-        autoFocus
-        className="capture-input"
-        value={body}
+        autoFocus={!compact}
+        className={compact ? "capture-input compact" : "capture-input"}
+        value={rawInput}
         onChange={(event) => {
-          setBody(event.target.value);
-          setDraft(null);
-          setDetailsOpen(false);
+          setRawInput(event.target.value);
+          setBodyOverride(null);
+          setTagsOverride(null);
+          setTagDraft("");
+          setAnnotationOverride(null);
           setError("");
         }}
-        placeholder="Paste logs, notes, links, decisions, command output, or rough thoughts..."
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            save();
+          }
+        }}
+        placeholder={
+          compact
+            ? "Add a command... (Enter to save, Shift+Enter for a new line)"
+            : "Paste one or more commands. Use # / -- / // for your own comments.\nEnter to save, Shift+Enter for a new line."
+        }
       />
       {error && <p className="error inline-error">{error}</p>}
-      <div className="capture-actions">
-        <button onClick={organizeAndSave} disabled={saving}>Organize and save</button>
-        <button className="ghost" onClick={saveInbox} disabled={saving}>Save to inbox</button>
-        <div className="suggestion-row" aria-label="Suggested metadata">
-          <span className="suggestion-label">Suggested</span>
-          <span>{suggestion.project || "inbox"}</span>
-          <span>{suggestion.type}</span>
-          {suggestion.tags.map((tag) => <span key={tag}>#{tag}</span>)}
-          <small>{suggestion.reason}</small>
-        </div>
-        <button className="ghost" onClick={reviewDetails} disabled={saving}>Review details</button>
-      </div>
-
-      {detailsOpen && draft && (
-        <form className="panel detail-editor" onSubmit={(event) => {
-          event.preventDefault();
-          organizeAndSave();
-        }}>
-          <div className="row">
-            <input value={draft.title} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="Title" required />
-            <input
-              value={draft.project}
-              onChange={(event) => updateDraft({ project: event.target.value, status: event.target.value ? "active" : "draft" })}
-              placeholder="Project (optional)"
-              list="known-projects"
-            />
-          </div>
-          <div className="detail-grid">
-            <select value={draft.type} onChange={(event) => updateDraft({ type: event.target.value as EntryType })}>
-              {entryTypes.map((item) => <option key={item}>{item}</option>)}
-            </select>
-            <select value={draft.status} onChange={(event) => updateDraft({ status: event.target.value as EntryStatus })}>
-              {statuses.map((item) => <option key={item}>{item}</option>)}
-            </select>
-            <input value={draft.tags.join(", ")} onChange={(event) => updateDraft({ tags: splitTags(event.target.value) })} placeholder="tags" />
-          </div>
-          <input value={draft.source} onChange={(event) => updateDraft({ source: event.target.value })} placeholder="source URL or file path" />
-          <div className="detail-actions">
-            <button disabled={saving}>Save with details</button>
-            <button className="ghost" type="button" onClick={() => setDetailsOpen(false)}>Close details</button>
-          </div>
-        </form>
+      {expanded && (
+      <label className="split-toggle">
+        <input type="checkbox" checked={splitEnabled} onChange={(event) => setSplitEnabled(event.target.checked)} />
+        Split multiple commands into separate entries
+      </label>
       )}
-      <datalist id="known-projects">
-        {summary.projects.map((project) => <option key={project} value={project} />)}
-      </datalist>
+
+      {expanded && (single ? (
+        <div className="panel detail-editor">
+          {duplicateOf && <p className="duplicate-warning">Looks like a duplicate of "{duplicateOf.title}"</p>}
+          {secretFindings.length > 0 && (
+            <p className="secret-warning">
+              May contain sensitive information ({secretFindings.join(", ")})
+              <button type="button" className="ghost" onClick={redactSensitiveInfo}>Redact sensitive info</button>
+            </p>
+          )}
+          <textarea
+            className="annotation-input"
+            value={annotation}
+            onChange={(event) => setAnnotationOverride(event.target.value)}
+            placeholder="What does this do? (auto-filled from your comment, or a guess when recognized)"
+          />
+          <div className="row">
+            <textarea
+              className="command-body command-body-preview"
+              value={body}
+              onChange={(event) => setBodyOverride(event.target.value)}
+              spellCheck={false}
+            />
+            <TagInput tags={tags} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
+          </div>
+        </div>
+      ) : (
+        <div className="panel detail-editor">
+          <p className="muted">{drafts.length} commands detected — each will be saved as its own entry.</p>
+          <TagInput tags={tagsOverride ?? []} draftValue={tagDraft} onDraftChange={setTagDraft} onChange={setTagsOverride} />
+          <div className="draft-preview-list">
+            {drafts.map((item, index) => {
+              const dup = findDuplicate(item.body, summary.entries);
+              const itemTags = mergeTags(item.tags, tagsOverride ?? []);
+              return (
+                <div className="draft-preview" key={index}>
+                  {dup && <p className="duplicate-warning">Looks like a duplicate of "{dup.title}"</p>}
+                  {item.annotation && <p className="command-annotation">{item.annotation}</p>}
+                  <pre className="command-body">{item.body}</pre>
+                  {itemTags.length > 0 && (
+                    <div className="command-tags">
+                      {itemTags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {expanded && (
+      <div className="capture-actions">
+        <button onClick={save} disabled={saving}>{single ? "Save" : `Save ${drafts.length} commands`}</button>
+      </div>
+      )}
     </section>
   );
 }
 
-function titleFromBody(body: string): string {
-  const line = body
-    .split("\n")
-    .map((item) => item.replace(/^#+\s*/, "").trim())
-    .find(Boolean);
-  if (!line) {
-    return "Untitled note";
-  }
-  return line.length > 72 ? `${line.slice(0, 69).trimEnd()}...` : line;
-}
-
-function Browse({ revision, projects, tags, onSaved, setNotice }: {
-  revision: number;
-  projects: string[];
+function TagInput({ tags, draftValue, onDraftChange, onChange }: {
   tags: string[];
-  onSaved: () => Promise<void>;
-  setNotice: (value: string) => void;
+  draftValue: string;
+  onDraftChange: (value: string) => void;
+  onChange: (tags: string[]) => void;
 }) {
-  const [filters, setFilters] = useState<SearchFilters>({});
-  const [results, setResults] = useState<Entry[]>([]);
+  function addTags(values: string[]) {
+    const next = [...tags];
+    for (const value of values) {
+      const clean = value.trim().toLowerCase();
+      if (clean && !next.includes(clean)) {
+        next.push(clean);
+      }
+    }
+    onChange(next);
+  }
 
-  async function runSearch(next: SearchFilters) {
-    try {
-      setResults(await searchEntries(next));
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+  function commit() {
+    if (draftValue.trim()) {
+      addTags([draftValue]);
+    }
+    onDraftChange("");
+  }
+
+  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const value = event.target.value;
+    if (value.includes(",")) {
+      addTags(splitTags(value));
+      onDraftChange("");
+      return;
+    }
+    onDraftChange(value);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit();
+    } else if (event.key === "Backspace" && !draftValue && tags.length) {
+      onChange(tags.slice(0, -1));
     }
   }
 
-  useEffect(() => {
-    runSearch(filters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision]);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    await runSearch(filters);
-  }
-
   return (
-    <section className="panel">
-      <form className="search-form" onSubmit={submit}>
-        <input value={filters.query ?? ""} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="Search title, body, or tags" />
-        <select value={filters.project ?? ""} onChange={(event) => setFilters({ ...filters, project: event.target.value })}>
-          <option value="">All projects</option>
-          {projects.map((project) => <option key={project} value={project}>{project}</option>)}
-        </select>
-        <select value={filters.type ?? ""} onChange={(event) => setFilters({ ...filters, type: event.target.value as SearchFilters["type"] })}>
-          <option value="">All types</option>
-          {entryTypes.map((type) => <option key={type}>{type}</option>)}
-        </select>
-        <select value={filters.tag ?? ""} onChange={(event) => setFilters({ ...filters, tag: event.target.value })}>
-          <option value="">All tags</option>
-          {tags.map((tag) => <option key={tag}>{tag}</option>)}
-        </select>
-        <select value={filters.status ?? ""} onChange={(event) => setFilters({ ...filters, status: event.target.value as SearchFilters["status"] })}>
-          <option value="">All statuses</option>
-          {statuses.map((status) => <option key={status}>{status}</option>)}
-        </select>
-        <button>Search</button>
-      </form>
-      <EntryList entries={results} empty="Nothing here yet — capture a note to get started." projects={projects} onSaved={onSaved} setNotice={setNotice} />
-      <datalist id="known-projects">
-        {projects.map((project) => <option key={project} value={project} />)}
-      </datalist>
-    </section>
-  );
-}
-
-function EntryList({ entries, empty, projects, onSaved, setNotice }: {
-  entries: Entry[];
-  empty: string;
-  projects: string[];
-  onSaved: () => Promise<void>;
-  setNotice: (value: string) => void;
-}) {
-  if (!entries.length) {
-    return <p className="muted">{empty}</p>;
-  }
-  return (
-    <div className="entry-list">
-      {entries.map((entry) => <EntryBlock key={entry.id} entry={entry} projects={projects} onSaved={onSaved} setNotice={setNotice} />)}
+    <div className="tag-input">
+      {tags.map((tag) => (
+        <span key={tag} className="tag-chip">
+          #{tag}
+          <button type="button" onClick={() => onChange(tags.filter((item) => item !== tag))} aria-label={`Remove tag ${tag}`}>×</button>
+        </span>
+      ))}
+      <input
+        value={draftValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={commit}
+        placeholder={tags.length ? "" : "tags"}
+      />
     </div>
   );
 }
 
-function EntryBlock({ entry, projects, onSaved, setNotice }: {
-  entry: Entry;
-  projects: string[];
+function Commands({ summary, onSaved, setNotice }: {
+  summary: Summary;
   onSaved: () => Promise<void>;
   setNotice: (value: string) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [activeTag, setActiveTag] = useState("");
+  const entries = summary.entries;
+
+  const tags = [...new Set(entries.flatMap((entry) => entry.tags))].sort();
+
+  const filtered = entries.filter((entry) => {
+    const haystack = `${entry.title}\n${entry.body}\n${entry.annotation}`.toLowerCase();
+    const matchesQuery = !query.trim() || haystack.includes(query.trim().toLowerCase());
+    const matchesTag = !activeTag || entry.tags.includes(activeTag);
+    return matchesQuery && matchesTag;
+  });
+
+  return (
+    <section className="panel">
+      <CaptureWorkspace summary={summary} onSaved={onSaved} setNotice={setNotice} compact />
+      <input
+        className="command-filter"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Quick filter commands..."
+      />
+      {tags.length > 0 && (
+        <div className="tag-filter-row">
+          <button className={activeTag === "" ? "ghost active" : "ghost"} onClick={() => setActiveTag("")}>All</button>
+          {tags.map((tag) => (
+            <button key={tag} className={activeTag === tag ? "ghost active" : "ghost"} onClick={() => setActiveTag(tag)}>#{tag}</button>
+          ))}
+        </div>
+      )}
+      {!filtered.length && <p className="muted">No commands saved yet — capture one and it will show up here.</p>}
+      <div className="command-list">
+        {filtered.map((entry) => (
+          <CommandCard key={entry.id} entry={entry} onSaved={onSaved} setNotice={setNotice} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CommandCard({ entry, onSaved, setNotice }: {
+  entry: Entry;
+  onSaved: () => Promise<void>;
+  setNotice: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [annotationDraft, setAnnotationDraft] = useState(entry.annotation);
+  const [copiedLine, setCopiedLine] = useState<number | null>(null);
+  const savingRef = useRef(false);
+  const copiedLineTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedLineTimeoutRef.current) {
+        clearTimeout(copiedLineTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editing) {
+      setAnnotationDraft(entry.annotation);
+    }
+  }, [entry.annotation, editing]);
+
+  async function saveAnnotation(viaBlur: boolean) {
+    if (savingRef.current) {
+      return;
+    }
+    savingRef.current = true;
+    try {
+      const next = annotationDraft.trim();
+      if (next === entry.annotation) {
+        setEditing(false);
+        return;
+      }
+      const findings = findSecrets(next);
+      if (findings.length) {
+        // Never call window.confirm() from a blur handler — a dialog
+        // opening while focus is already mid-transition is unreliable.
+        // Leave editing open so the text isn't lost; the user presses
+        // Enter (a deliberate action, not an incidental one) to get the
+        // confirm prompt, or Escape to discard.
+        if (viaBlur) {
+          return;
+        }
+        if (!window.confirm(`This looks like it may contain sensitive information:\n${findings.join(", ")}\n\nSave anyway?`)) {
+          return;
+        }
+      }
+      setEditing(false);
+      await updateEntry(entry.id, { annotation: next });
+      await onSaved();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      savingRef.current = false;
+    }
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(entry.body);
+      setNotice(`Copied "${entry.title}"`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function copyLine(line: string, index: number) {
+    try {
+      await navigator.clipboard.writeText(line);
+      setCopiedLine(index);
+      if (copiedLineTimeoutRef.current) {
+        clearTimeout(copiedLineTimeoutRef.current);
+      }
+      copiedLineTimeoutRef.current = setTimeout(() => setCopiedLine(null), 1500);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function remove() {
     if (!window.confirm(`Delete "${entry.title}"?`)) {
       return;
     }
     try {
       await deleteEntry(entry.id);
-      setNotice("Entry deleted");
+      setNotice("Command deleted");
       await onSaved();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -348,52 +465,73 @@ function EntryBlock({ entry, projects, onSaved, setNotice }: {
   }
 
   return (
-    <article className="entry-block">
-      <div>
-        <h4>{entry.title}</h4>
-        <p>{entry.body.slice(0, 180)}</p>
+    <article className="command-card">
+      <div className="command-card-top">
+        <div className="command-tags">
+          {entry.tags.map((tag) => <span key={tag} className="command-tag">#{tag}</span>)}
+        </div>
+        {editing ? (
+          <>
+            <textarea
+              autoFocus
+              className="command-annotation-edit"
+              value={annotationDraft}
+              onChange={(event) => setAnnotationDraft(event.target.value)}
+              onBlur={() => saveAnnotation(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  saveAnnotation(false);
+                } else if (event.key === "Escape") {
+                  setAnnotationDraft(entry.annotation);
+                  setEditing(false);
+                }
+              }}
+            />
+            {findSecrets(annotationDraft).length > 0 && (
+              <button
+                type="button"
+                className="ghost redact-inline-button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setAnnotationDraft(redactSecrets(annotationDraft))}
+              >
+                Redact
+              </button>
+            )}
+          </>
+        ) : (
+          <span
+            className={entry.annotation ? "command-annotation editable" : "command-annotation editable empty"}
+            onClick={() => setEditing(true)}
+          >
+            {entry.annotation || "Add a description..."}
+          </span>
+        )}
+        <div className="command-actions">
+          <button className="ghost" onClick={copy}>Copy</button>
+          <button className="ghost" onClick={remove}>Delete</button>
+        </div>
       </div>
-      <footer>
-        <span>{entry.type}</span>
-        <span>{entry.status}</span>
-        {entry.project && <span>{entry.project}</span>}
-        {entry.tags.map((tag) => <span key={tag}>#{tag}</span>)}
-      </footer>
-      {entry.status === "draft" && <TriageControls entry={entry} projects={projects} onSaved={onSaved} setNotice={setNotice} />}
-      <button className="ghost entry-delete" onClick={remove}>Delete</button>
+      <pre className="command-body command-body-lines">
+        {entry.body.split("\n").map((line, index) => (
+          <span className="command-body-line" key={index}>
+            {isCommentLine(line) || !line.trim() ? (
+              <span className="command-line-copy-spacer" aria-hidden="true" />
+            ) : (
+              <button
+                type="button"
+                className={copiedLine === index ? "command-line-copy copied" : "command-line-copy"}
+                onClick={() => copyLine(line, index)}
+                aria-label={`Copy line: ${line}`}
+              >
+                {copiedLine === index ? "✓" : "⧉"}
+              </button>
+            )}
+            <span className="command-body-line-text">{line}</span>
+          </span>
+        ))}
+      </pre>
     </article>
-  );
-}
-
-function TriageControls({ entry, projects, onSaved, setNotice }: {
-  entry: Entry;
-  projects: string[];
-  onSaved: () => Promise<void>;
-  setNotice: (value: string) => void;
-}) {
-  const [project, setProject] = useState(projects[0] ?? "");
-  const [type, setType] = useState<EntryType>("note");
-  const [tags, setTags] = useState(entry.tags.join(", "));
-
-  async function archive() {
-    try {
-      await updateEntry(entry.id, { project, type, tags: splitTags(tags), status: "active" });
-      setNotice("Moved out of the inbox");
-      await onSaved();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  return (
-    <div className="archive-controls">
-      <input value={project} onChange={(event) => setProject(event.target.value)} placeholder="Project" list="known-projects" />
-      <select value={type} onChange={(event) => setType(event.target.value as EntryType)}>
-        {entryTypes.map((item) => <option key={item}>{item}</option>)}
-      </select>
-      <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="tags" />
-      <button onClick={archive} disabled={!project}>Archive</button>
-    </div>
   );
 }
 
@@ -401,8 +539,20 @@ function splitTags(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+function mergeTags(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])];
+}
+
+function findDuplicate(body: string, entries: Entry[]): Entry | undefined {
+  const normalized = normalizeCommandBody(body);
+  if (!normalized) {
+    return undefined;
+  }
+  return entries.find((entry) => normalizeCommandBody(entry.body) === normalized);
+}
+
 function labelView(view: View): string {
-  return { capture: "Capture", browse: "Browse" }[view];
+  return { capture: "Capture", commands: "Commands" }[view];
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

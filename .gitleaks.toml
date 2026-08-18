@@ -1,0 +1,83 @@
+title = "knowledge repo secret & PII scan"
+
+# Runs both locally (pre-commit hook, see .githooks/pre-commit) and in CI
+# (.github/workflows/secret-scan.yml). Hard-blocks on any match; known-safe
+# fixtures are excluded below via [allowlist], not by weakening the rules.
+
+[extend]
+# Pulls in gitleaks' maintained rule set (AWS/GCP/GitHub/Slack/Stripe keys,
+# private key blocks, high-entropy generic secrets, etc.) so this file only
+# needs to add what the default set doesn't cover: generic password
+# assignments, any URL, any IP, and a project-specific name denylist.
+useDefault = true
+
+[[rules]]
+id = "generic-password-assignment"
+description = "Password/secret-shaped assignment or CLI flag"
+regex = '''(?i)(password|passwd|pwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*['"]?[^\s'"]{4,}'''
+tags = ["password"]
+
+[[rules]]
+id = "url-with-credentials"
+description = "URL with a username (and optionally password) embedded before the host"
+regex = '''\b\w+://[^\s/:@]+(:[^\s/@]+)?@'''
+tags = ["url", "credentials"]
+
+[[rules]]
+id = "any-url"
+description = "Any http(s) URL"
+regex = '''https?://[^\s"'<>]+'''
+tags = ["url"]
+
+[[rules]]
+id = "any-ipv4"
+description = "Any IPv4 address"
+regex = '''\b(?:\d{1,3}\.){3}\d{1,3}\b'''
+tags = ["ip"]
+
+[[rules]]
+id = "denylisted-name"
+description = "Real name/identifier that must never appear in source (edit this list as needed)"
+# A generic "any name" pattern isn't feasible with regex (see secretScanner.ts
+# for the same tradeoff — tested against this repo: capitalized-word-pair and
+# common-surname heuristics both hit 100% false positives, zero real names).
+# This rule only catches names explicitly listed here.
+regex = '''(?i)\b(hanwei)\b'''
+tags = ["pii", "name"]
+
+[[rules]]
+id = "email-address"
+description = "Any email address"
+regex = '''\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'''
+tags = ["pii", "email"]
+
+[allowlist]
+description = "Known-safe placeholder values that should never trip a rule"
+regexes = [
+  '''example\.(com|org|net)''',
+  '''\blocalhost\b''',
+  '''\b127\.0\.0\.1\b''',
+  '''\b0\.0\.0\.0\b''',
+  # RFC 5737 documentation ranges — always safe to use as fixtures
+  '''\b192\.0\.2\.\d{1,3}\b''',
+  '''\b198\.51\.100\.\d{1,3}\b''',
+  '''\b203\.0\.113\.\d{1,3}\b''',
+]
+paths = [
+  # This file's entire purpose is fixture strings that *look* like secrets,
+  # so it will trip every rule above by design — see its own file comment.
+  '''^src/core/secretScanner\.test\.ts$''',
+  '''^package-lock\.json$''',
+  '''^dist/.*''',
+  # Pure CI/tooling scripts: their content is inherently install/download
+  # URLs (github.com release links, API endpoints), none of it sensitive.
+  # Application source files with a one-off legitimate URL use an inline
+  # `// gitleaks:allow` comment instead, so scanning stays on for the rest
+  # of the file — see src/worker.ts and src/core/secretScanner.ts.
+  '''^\.github/workflows/.*''',
+  '''^\.githooks/.*''',
+  # The config file itself necessarily contains the literal rule patterns
+  # above (e.g. the denylisted name), which would otherwise trip its own
+  # rules when gitleaks scans its own content.
+  '''^\.gitleaks\.toml$''',
+]

@@ -1,5 +1,4 @@
-import type { OrganizedDraft } from "../core/organizer.js";
-import type { CreateEntryInput, Entry, SearchFilters, Summary } from "../core/types.js";
+import type { CreateEntryInput, Entry, Summary } from "../core/types.js";
 
 export async function getSummary(): Promise<Summary> {
   return request("/api/summary");
@@ -15,20 +14,6 @@ export async function updateEntry(id: string, updates: Partial<CreateEntryInput>
 
 export async function deleteEntry(id: string): Promise<void> {
   await request(`/api/entries/${encodeURIComponent(id)}`, { method: "DELETE" });
-}
-
-export async function organizeCapture(body: string): Promise<OrganizedDraft> {
-  return request("/api/organize", { method: "POST", body: { body } });
-}
-
-export async function searchEntries(filters: SearchFilters): Promise<Entry[]> {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (value) {
-      params.set(key, String(value));
-    }
-  }
-  return request(`/api/search?${params.toString()}`);
 }
 
 export function subscribeToChanges(onChange: () => void): () => void {

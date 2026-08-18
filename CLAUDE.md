@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A personal engineering knowledge wiki: quick capture with heuristic auto-classification, full-text-ish search with tag/type/status filters, and project grouping. Backed by Cloudflare D1, with real-time multi-device sync over a Durable Object WebSocket — no local files, no Git-backed storage.
+A single-purpose personal command snippet manager. Paste a shell command (one line or a block) — comments you write yourself (`#`, `-- `, `// `) are extracted as the description and kept out of the copyable command body, tags are auto-generated from recognized CLI tool names, and everything syncs live across devices. Backed by Cloudflare D1 with real-time sync over a Durable Object WebSocket — no local files, no Git-backed storage.
+
+This app was previously a general multi-type knowledge wiki (troubleshooting/decision/reference/runbook/note entries, project grouping, a Browse view). That was deliberately cut down to just this one feature — don't reintroduce those types/fields/views without being asked; they were removed on purpose, not left unfinished.
 
 ## Commands
 
@@ -28,20 +30,23 @@ npm run preview            # build + wrangler dev (serve the built Worker locall
 
 `src/worker.ts` is the sole backend, in both dev and prod — there is no local Node server. It handles all `/api/*` routes, serves static assets from `dist/client` via the `ASSETS` binding for everything else, and re-exports the `SyncHub` Durable Object class (required so Wrangler can resolve `durable_objects.bindings[].class_name` from the `main` module in `wrangler.jsonc`).
 
-- **D1** (binding `DB`, database name `knowledge-db`) is the single source of truth. Schema lives in `migrations/0001_init.sql` — one `entries` table, `tags` stored as a JSON string column (no join table), `project` is a **plain free-text grouping string**, not a separate entity — there is no "create project" step or project CRUD; a project is just a value some entries share, the same way a tag is. Search is plain SQL `LIKE` over title/body/tags, not FTS5 (documented as a future upgrade in the table if entry volume ever grows enough to need it).
+- **D1** (binding `DB`, database name `knowledge-db`) is the single source of truth. Schema is built up across `migrations/0001_init.sql` → `0002_add_command_type_and_annotation.sql` → `0003_command_only_schema.sql` (each is a full SQLite table-rebuild migration, since SQLite can't `ALTER ... CHECK`/drop columns directly — see `0003` for the current pattern if another schema change is needed). The current, minimal schema is just `id, title, body, annotation, tags, created_at, updated_at` — one `entries` table, `tags` a JSON string column (no join table). There is no `type`/`project`/`status`/`source` field anymore; every row is implicitly a command.
 - **Durable Object** `SyncHub` (`src/worker/syncHub.ts`, binding `SYNC_HUB`) is a *singleton* (`idFromName("singleton")`) that holds live WebSocket connections via the hibernatable WebSockets API (`ctx.acceptWebSocket`/`ctx.getWebSockets()`) and fans out a broadcast. Every mutating route (`POST /api/entries`, `PATCH /api/entries/:id`, `DELETE /api/entries/:id`) calls `stub.fetch(".../broadcast", ...)` after a successful D1 write. The broadcast payload is a cheap `{ type: "entries-changed", at }` signal, not a diff — clients just refetch `/api/summary` on receipt (see `subscribeToChanges` in `src/ui/api.ts`). Don't add row-level diffing to this path without a real reason; D1 reads are cheap at this app's scale.
 - Any new mutating route must call `broadcast(env)` (see `src/worker.ts`) after its D1 write, or other open tabs/devices won't see the change until a manual refresh.
 
 ## Core modules (`src/core/`)
 
-- `types.ts` — `Entry`, `EntryType` (`troubleshooting|decision|reference|runbook|note` — no `"project"` type), `EntryStatus` (`draft|active|archived`), `SearchFilters`, `CreateEntryInput`, `Summary`.
-- `entryStore.ts` — all D1 queries (`createEntry`, `updateEntry`, `deleteEntry`, `getSummary`, `searchEntries`, `listEntries`), each `(db: D1Database, ...)`-first. `rowToEntry()` maps `snake_case` D1 columns to the camelCase `Entry` type — extend both together if the schema changes.
-- `organizer.ts` — `organizeDraft()` heuristically infers title/type/project/tags/source from raw capture text (keyword matching against `TYPE_KEYWORDS`/`TECH_KEYWORDS`, inline `#tag` extraction, URL detection, and matching existing project *strings* mentioned in the text). Pure/no I/O, unchanged in spirit since before the D1 rewrite — this is the "capture-first, auto-classify" behavior the app is built around, don't casually rework it.
+- `types.ts` — `Entry { id, title, body, annotation, tags, createdAt, updatedAt }`, `CreateEntryInput`, `SearchFilters`, `Summary`. Deliberately minimal — resist adding fields back (`type`, `project`, `status`) without an explicit ask.
+- `commandRules.ts` — the actual command-domain logic, pure/no I/O:
+  - `extractComments(raw)` splits a pasted block into pure command lines (`body`) and any comments the user wrote themselves (`annotation`), recognizing `#`, `-- ` (dash-dash-**space**), and `// ` (slash-slash-**space**), both full-line and same-line-trailing. The required trailing space on `--`/`//` is load-bearing: it's what stops a CLI flag like `--force` from ever being misread as a `-- comment`. A `#!` shebang line is never treated as a comment.
+  - `annotateCommand(body)` is a small curated `ANNOTATION_RULES` regex table (~10 tools) used only as a **fallback** guess when the user wrote no comment at all — see `organizer.ts` for the precedence.
+  - `extractToolTags(body)` recognizes ~40 common CLI tool names (`TOOL_NAMES`) as the primary tag source.
+- `organizer.ts` — `organizeDraft({ body, tags })`: runs `extractComments`, prefers the user's own extracted comment as `annotation` and only falls back to `annotateCommand()` on the comment-stripped body when the user wrote nothing; infers `title` from the first pure command line; infers `tags` from tool names + inline `#hashtags` found *inside the annotation text* + reused existing tags, all filtered through a `TAG_PATTERN` (`/^[a-z0-9][a-z0-9._-]{0,23}$/`) that rejects anything with a space or over 24 chars — this is what keeps tags to short core keywords instead of long descriptive phrases; do not relax this without being asked. Pure/no I/O, safe to import directly into the browser bundle (see below).
 
 ## UI (`src/ui/`)
 
-- `main.tsx` — single-file React app, two views only: **Capture** (large-textarea auto-classify flow with a collapsible "Review details" override — the only entry-creation path) and **Browse** (search/filter form + entry list; draft-status entries get inline triage controls instead of a separate Inbox page; "project" is just a filter value, not a page).
-- `api.ts` — thin fetch wrapper around `/api/*`, plus `subscribeToChanges(onChange)` for the `/api/sync` WebSocket (auto-reconnects with backoff on close).
+- `main.tsx` — single-file React app, two views: **Capture** (paste a command, live-preview of the auto-extracted title/tags/annotation via `organizeDraft()` called **directly in the browser** — not through an API round-trip, since it's pure — with each field individually overridable before hitting Save) and **Commands** (the only browsing view: quick client-side text filter + tag-chip filter over the already-fetched `summary.entries`, a monospace command block per card, and a Copy button that copies `entry.body` only — never the annotation).
+- `api.ts` — thin fetch wrapper around `/api/*` (`getSummary`, `createEntry`, `updateEntry`, `deleteEntry`), plus `subscribeToChanges(onChange)` for the `/api/sync` WebSocket (auto-reconnects with backoff on close). There is no `/api/search` or `/api/organize` route — search/organize both happen client-side now that there's no server-only state they depend on.
 
 ## Testing split
 
@@ -53,3 +58,12 @@ npm run preview            # build + wrangler dev (serve the built Worker locall
 - `wrangler.jsonc`'s `database_id` is a placeholder (`REPLACE_WITH_DATABASE_ID_FROM_WRANGLER_D1_CREATE`) until someone runs `wrangler login` then `wrangler d1 create knowledge-db` and pastes the real ID in, then applies migrations remotely with `wrangler d1 migrations apply knowledge-db --remote`.
 - **There is no authentication anywhere in this app.** It's meant to sit behind a Cloudflare Access application (requires attaching a custom domain to the Worker first — Access policies are documented against custom domains, not bare `workers.dev` subdomains) rather than any in-app login. Don't add app-level auth code unless that decision changes; if Access turns out not to cleanly gate the `/api/sync` WebSocket upgrade, the documented fallback is a shared-secret header/cookie check applied uniformly to all routes in `worker.ts`.
 - `dist/client` is committed (see the `dist/*` / `!dist/client/**` carve-out in `.gitignore`) for Cloudflare dashboard build setups that run `wrangler deploy` with no build step — refresh it with `npm run build` before committing app changes if that's the deploy path in use. `dist/<worker-name>` (the SSR worker bundle) is not committed.
+
+## Secret scanning (repo-level, separate from `secretScanner.ts`)
+
+Two things named similarly, don't conflate them:
+- `src/core/secretScanner.ts` is an **app feature** — advisory, in-browser warnings when a *user pastes a command* that looks like it contains a secret. Scoped to command text only.
+- `.gitleaks.toml` + `.githooks/pre-commit` + `.github/workflows/secret-scan.yml` is **repo tooling** — hard-blocks *git commits/PRs to this repository* that contain secrets, credentialed URLs, any URL, any IPv4, or (once populated) denylisted names. `npm install` wires the local hook via the `prepare` script (`git config core.hooksPath .githooks`); CI is the real backstop since the local hook can be skipped with `--no-verify`.
+- Git only invokes a hook file named exactly `pre-commit` (no extension) under `core.hooksPath` — this silently fails to fire if renamed with an extension.
+- Both the hook and CI must run `gitleaks` with `--source .` (relative, from repo root), not an absolute path — `.gitleaks.toml`'s `[allowlist].paths` regexes are anchored (`^dist/.*` etc.) and won't match absolute paths.
+- `any-url`/`any-ipv4` are intentionally broad and *will* flag legitimate infra/doc content, not just real secrets — false positives get cleared via `[allowlist].paths` for whole files that are inherently full of legitimate URLs (CI/tooling scripts) or an inline `// gitleaks:allow` comment for a one-off legitimate line inside application source (keeps the rest of that file scanned).

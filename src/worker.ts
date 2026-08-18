@@ -1,6 +1,5 @@
-import { createEntry, deleteEntry, getSummary, searchEntries, updateEntry } from "./core/entryStore.js";
-import { organizeDraft } from "./core/organizer.js";
-import type { CreateEntryInput, SearchFilters } from "./core/types.js";
+import { createEntry, deleteEntry, getSummary, updateEntry } from "./core/entryStore.js";
+import type { CreateEntryInput } from "./core/types.js";
 
 export { SyncHub } from "./worker/syncHub.js";
 
@@ -37,17 +36,6 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
     return json(await getSummary(env.DB));
   }
 
-  if (request.method === "GET" && url.pathname === "/api/search") {
-    const filters: SearchFilters = {
-      query: url.searchParams.get("query") ?? "",
-      project: url.searchParams.get("project") ?? "",
-      type: (url.searchParams.get("type") ?? "") as SearchFilters["type"],
-      tag: url.searchParams.get("tag") ?? "",
-      status: (url.searchParams.get("status") ?? "") as SearchFilters["status"]
-    };
-    return json(await searchEntries(env.DB, filters));
-  }
-
   if (request.method === "POST" && url.pathname === "/api/entries") {
     const input = await readJson<CreateEntryInput>(request);
     const entry = await createEntry(env.DB, input);
@@ -71,18 +59,12 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
     }
   }
 
-  if (request.method === "POST" && url.pathname === "/api/organize") {
-    const body = await readJson<{ body: string }>(request);
-    const summary = await getSummary(env.DB);
-    return json(organizeDraft({ body: body.body ?? "", projects: summary.projects, tags: summary.tags }));
-  }
-
   return json({ error: "API route not found." }, 404);
 }
 
 async function broadcast(env: Env): Promise<void> {
   const stub = env.SYNC_HUB.get(env.SYNC_HUB.idFromName("singleton"));
-  await stub.fetch("https://sync-hub/broadcast", {
+  await stub.fetch("https://sync-hub/broadcast", { // gitleaks:allow — internal DO fetch target, not a real host
     method: "POST",
     body: JSON.stringify({ type: "entries-changed", at: new Date().toISOString() })
   });

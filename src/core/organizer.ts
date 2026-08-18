@@ -1,127 +1,131 @@
-import type { EntryStatus, EntryType } from "./types.js";
+import { annotateCommand, commandSignature, extractComments, extractSeparatedOverview, extractToolTags, skipLeadingComments, splitCommandUnits, type ExtractedComments } from "./commandRules.js";
+import type { Entry } from "./types.js";
 
 export interface OrganizeDraftInput {
   body: string;
-  projects: string[];
   tags: string[];
+  entries?: Entry[];
 }
 
 export interface OrganizedDraft {
   title: string;
-  type: EntryType;
-  project: string;
-  tags: string[];
-  status: EntryStatus;
-  source: string;
   body: string;
-  saveTarget: "project" | "inbox";
-  reason: string;
+  annotation: string;
+  tags: string[];
 }
 
-const TYPE_KEYWORDS: Record<EntryType, string[]> = {
-  troubleshooting: ["error", "exception", "failed", "failure", "timeout", "root cause", "fix", "resolved", "symptom", "cause", "verification"],
-  decision: ["decision", "decide", "option", "trade-off", "tradeoff", "chosen", "alternative", "consequence"],
-  runbook: ["steps", "procedure", "rollback", "checklist", "verify", "command sequence"],
-  reference: ["http://", "https://", "article", "docs", "source summary"],
-  note: []
-};
-
-const TECH_KEYWORDS = [
-  "api",
-  "auth",
-  "cache",
-  "ci",
-  "deployment",
-  "docker",
-  "git",
-  "graphql",
-  "redis",
-  "kubernetes",
-  "mysql",
-  "nginx",
-  "node",
-  "postgres",
-  "typescript"
-];
+const TAG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,23}$/;
 
 export function organizeDraft(input: OrganizeDraftInput): OrganizedDraft {
-  const body = input.body.trim();
-  const project = inferProject(body, input.projects);
-  const type = inferType(body);
-  const saveTarget = project ? "project" : "inbox";
+  const raw = input.body.trim();
+  // A body with more than one actual command line, being kept as a single
+  // combined entry, keeps every comment inline (including the one before
+  // the first command — it's that command's own comment, not a block-level
+  // summary just because it's first) instead of stripping comments out —
+  // that's only appropriate when the body ends up as one runnable command.
+  const entries = input.entries ?? [];
+  if (splitCommandUnits(raw).length > 1) {
+    return buildCombinedDraft(raw, input.tags, entries);
+  }
+  const extracted = extractComments(raw);
+  return buildDraft(extracted, input.tags, entries);
+}
+
+/**
+ * Like organizeDraft, but when `split` is true and the pasted body contains
+ * more than one command line, returns one OrganizedDraft per command
+ * (see splitCommandUnits) instead of combining everything into one. Falls
+ * back to the single-draft behavior when `split` is false or only one
+ * command is present.
+ */
+export function organizeDrafts(input: OrganizeDraftInput & { split: boolean }): OrganizedDraft[] {
+  if (!input.split) {
+    return [organizeDraft(input)];
+  }
+  const units = splitCommandUnits(input.body.trim());
+  if (units.length <= 1) {
+    return [organizeDraft(input)];
+  }
+  const entries = input.entries ?? [];
+  return units.map((unit) => buildDraft(unit, input.tags, entries));
+}
+
+function buildDraft(extracted: ExtractedComments, existingTags: string[], entries: Entry[]): OrganizedDraft {
+  const { body } = extracted;
+  const annotation = extracted.annotation || annotateCommand(body);
 
   return {
     title: inferTitle(body),
-    type,
-    project,
-    tags: inferTags(body, input.tags),
-    status: saveTarget === "project" ? "active" : "draft",
-    source: inferSource(body),
     body,
-    saveTarget,
-    reason: project ? `Matched project ${project}.` : "No project match; saved as inbox draft."
+    annotation,
+    tags: inferTags(body, annotation, existingTags, entries)
   };
 }
 
-function inferProject(body: string, projects: string[]): string {
-  const normalizedBody = body.toLowerCase();
-  for (const project of projects) {
-    if (containsPhrase(normalizedBody, project)) {
-      return project;
-    }
-  }
-  return "";
+function buildCombinedDraft(raw: string, existingTags: string[], entries: Entry[]): OrganizedDraft {
+  // A leading comment block only counts as a genuine, block-level overview
+  // — extracted out of the body — when it's separated from the first
+  // command by a blank line (see extractSeparatedOverview). Without that
+  // separator it's indistinguishable from an ordinary per-command comment,
+  // so it stays inline like every other one.
+  const { body, overview } = extractSeparatedOverview(raw);
+  const annotation = overview || extractComments(body).annotation || annotateCommand(body);
+
+  return {
+    title: inferTitle(skipLeadingComments(body)),
+    body,
+    annotation,
+    tags: inferTags(body, annotation, existingTags, entries)
+  };
 }
 
-function inferType(body: string): EntryType {
-  const normalizedBody = body.toLowerCase();
-  const scores = Object.entries(TYPE_KEYWORDS)
-    .filter(([type]) => type !== "note")
-    .map(([type, keywords]) => ({
-      type: type as Exclude<EntryType, "note">,
-      score: keywords.reduce((count, keyword) => count + (normalizedBody.includes(keyword) ? 1 : 0), 0)
-    }));
-  scores.sort((a, b) => b.score - a.score);
-  return scores[0]?.score ? scores[0].type : "note";
-}
-
-function inferTags(body: string, existingTags: string[]): string[] {
-  const normalizedBody = body.toLowerCase();
-  const inlineTags = [...body.matchAll(/#([\p{L}\p{N}_-]+)/gu)].map((match) => cleanTag(match[1]));
-  const keywordTags = TECH_KEYWORDS.filter((keyword) => containsPhrase(normalizedBody, keyword));
-  const reusedTags = existingTags
-    .map(cleanTag)
-    .filter((tag) => tag && containsPhrase(normalizedBody, tag));
-  return unique([...inlineTags, ...keywordTags, ...reusedTags]).slice(0, 6);
-}
-
-function inferTitle(body: string): string {
-  const line = body
-    .split("\n")
-    .map((item) => item.replace(/^#+\s*/, "").trim())
-    .find(Boolean);
+export function inferTitle(body: string): string {
+  const line = body.split("\n").find(Boolean);
   if (!line) {
-    return "Untitled note";
+    return "Untitled command";
   }
   return line.length > 72 ? `${line.slice(0, 69).trimEnd()}...` : line;
 }
 
-function inferSource(body: string): string {
-  return body.match(/https?:\/\/\S+/)?.[0].replace(/[),.;]+$/, "") ?? "";
+function inferTags(body: string, annotation: string, existingTags: string[], entries: Entry[]): string[] {
+  const toolTags = extractToolTags(body);
+  const haystack = `${body}\n${annotation}`;
+  const inlineTags = [...haystack.matchAll(/#([\p{L}\p{N}_-]+)/gu)].map((match) => match[1]);
+  const reusedTags = existingTags.filter((tag) => tag && haystack.toLowerCase().includes(tag.toLowerCase()));
+  const similarTags = findSimilarTags(body, entries);
+  return unique([...toolTags, ...inlineTags, ...reusedTags, ...similarTags]).slice(0, 6);
 }
 
-function containsPhrase(haystack: string, phrase: string): boolean {
-  const cleanPhrase = phrase.trim().toLowerCase();
-  if (!cleanPhrase) {
-    return false;
+/**
+ * Carries tags forward from previously-saved commands that share the same
+ * signature (same tool + same flags, see commandSignature) as the new
+ * command — e.g. a manually-tagged "kubectl rollout restart
+ * deployment/api" lends its tags to a later "kubectl rollout restart
+ * deployment/web" even though the resource name differs.
+ */
+function findSimilarTags(body: string, entries: Entry[]): string[] {
+  const signature = commandSignature(body);
+  if (!signature) {
+    return [];
   }
-  return haystack.includes(cleanPhrase);
-}
-
-function cleanTag(value: string): string {
-  return value.trim().replace(/^#/, "").toLowerCase();
+  const tags: string[] = [];
+  for (const entry of entries) {
+    if (commandSignature(entry.body) === signature) {
+      tags.push(...entry.tags);
+    }
+  }
+  return tags;
 }
 
 function unique(values: string[]): string[] {
-  return [...new Set(values.map(cleanTag).filter(Boolean))];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const clean = value.trim().toLowerCase();
+    if (clean && TAG_PATTERN.test(clean) && !seen.has(clean)) {
+      seen.add(clean);
+      result.push(clean);
+    }
+  }
+  return result;
 }
