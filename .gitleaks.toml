@@ -38,12 +38,18 @@ tags = ["ip"]
 [[rules]]
 id = "denylisted-name"
 description = "Real name/identifier that must never appear in source (edit this list as needed)"
-# Empty by default — add real names/handles that have leaked before, e.g.:
-#   regex = '''(?i)\b(Jane Doe|jane\.doe@example\.com)\b'''
 # A generic "any name" pattern isn't feasible with regex (see secretScanner.ts
-# for the same tradeoff); this rule only catches names you've explicitly listed.
-regex = '''(?i)\b(REPLACE_ME_WITH_REAL_NAMES_TO_BLOCK)\b'''
+# for the same tradeoff — tested against this repo: capitalized-word-pair and
+# common-surname heuristics both hit 100% false positives, zero real names).
+# This rule only catches names explicitly listed here.
+regex = '''(?i)\b(hanwei)\b'''
 tags = ["pii", "name"]
+
+[[rules]]
+id = "email-address"
+description = "Any email address"
+regex = '''\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'''
+tags = ["pii", "email"]
 
 [allowlist]
 description = "Known-safe placeholder values that should never trip a rule"
@@ -70,4 +76,8 @@ paths = [
   # of the file — see src/worker.ts and src/core/secretScanner.ts.
   '''^\.github/workflows/.*''',
   '''^\.githooks/.*''',
+  # The config file itself necessarily contains the literal rule patterns
+  # above (e.g. the denylisted name), which would otherwise trip its own
+  # rules when gitleaks scans its own content.
+  '''^\.gitleaks\.toml$''',
 ]
