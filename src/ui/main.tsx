@@ -631,15 +631,17 @@ function NoteCard({ entry, onSaved, setNotice }: {
           </span>
         )}
         <div className="command-actions">
-          <button className="ghost" onClick={() => setExpanded((value) => !value)}>
-            {expanded ? "Collapse" : "Expand"}
-          </button>
           <button className="ghost" onClick={copy}>Copy</button>
           <button className="ghost" onClick={remove}>Delete</button>
         </div>
       </div>
-      <p className="note-title" onClick={() => setExpanded((value) => !value)}>{entry.title}</p>
-      {expanded && <pre className="command-body note-body">{entry.body}</pre>}
+      <pre
+        className="command-body note-body"
+        title={expanded ? "Collapse" : "Show detail"}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {expanded ? entry.body : "..."}
+      </pre>
     </article>
   );
 }
