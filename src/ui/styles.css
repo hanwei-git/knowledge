@@ -133,6 +133,13 @@ textarea {
   padding: 28px;
 }
 
+.topbar,
+.error,
+.capture-workspace,
+.panel {
+  max-width: 760px;
+}
+
 .topbar {
   display: flex;
   align-items: flex-start;
