@@ -1,44 +1,27 @@
 import type { OrganizedDraft } from "../core/organizer.js";
-import type { CreateEntryInput, CreateProjectInput, EntryMetadata, KnowledgeEntry, ProjectWiki, SearchFilters } from "../core/types.js";
-
-export interface Summary {
-  entries: KnowledgeEntry[];
-  projects: ProjectWiki[];
-  inbox: KnowledgeEntry[];
-  tags: string[];
-}
-
-export interface GitChange {
-  code: string;
-  path: string;
-  staged: boolean;
-}
+import type { CreateEntryInput, Entry, SearchFilters, Summary } from "../core/types.js";
 
 export async function getSummary(): Promise<Summary> {
   return request("/api/summary");
 }
 
-export async function createInboxEntry(input: CreateEntryInput): Promise<KnowledgeEntry> {
+export async function createEntry(input: CreateEntryInput): Promise<Entry> {
   return request("/api/entries", { method: "POST", body: input });
 }
 
-export async function createStructuredEntry(input: CreateEntryInput): Promise<KnowledgeEntry> {
-  return request("/api/entries", { method: "POST", body: input });
+export async function updateEntry(id: string, updates: Partial<CreateEntryInput>): Promise<Entry> {
+  return request(`/api/entries/${encodeURIComponent(id)}`, { method: "PATCH", body: updates });
+}
+
+export async function deleteEntry(id: string): Promise<void> {
+  await request(`/api/entries/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function organizeCapture(body: string): Promise<OrganizedDraft> {
   return request("/api/organize", { method: "POST", body: { body } });
 }
 
-export async function createProject(input: CreateProjectInput): Promise<KnowledgeEntry> {
-  return request("/api/projects", { method: "POST", body: input });
-}
-
-export async function archiveEntry(relativePath: string, updates: Pick<EntryMetadata, "project" | "type" | "tags" | "status">): Promise<KnowledgeEntry> {
-  return request("/api/archive", { method: "POST", body: { relativePath, updates } });
-}
-
-export async function searchEntries(filters: SearchFilters): Promise<KnowledgeEntry[]> {
+export async function searchEntries(filters: SearchFilters): Promise<Entry[]> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
     if (value) {
@@ -48,20 +31,29 @@ export async function searchEntries(filters: SearchFilters): Promise<KnowledgeEn
   return request(`/api/search?${params.toString()}`);
 }
 
-export async function getGitStatus(): Promise<GitChange[] | { error: string; fallback: GitChange[] }> {
-  return request("/api/git/status");
-}
+export function subscribeToChanges(onChange: () => void): () => void {
+  const url = `${location.origin.replace(/^http/, "ws")}/api/sync`;
+  let socket: WebSocket;
+  let closedByUs = false;
+  let backoff = 1000;
 
-export async function getGitDiff(): Promise<{ diff: string | { error: string; fallback: string } }> {
-  return request("/api/git/diff");
-}
+  function connect() {
+    socket = new WebSocket(url);
+    socket.onmessage = () => onChange();
+    socket.onclose = () => {
+      if (closedByUs) {
+        return;
+      }
+      setTimeout(connect, Math.min(backoff, 15000));
+      backoff *= 2;
+    };
+  }
 
-export async function getGitLog(): Promise<string[] | { error: string; fallback: string[] }> {
-  return request("/api/git/log");
-}
-
-export async function commitKnowledge(message: string): Promise<{ output: string }> {
-  return request("/api/git/commit", { method: "POST", body: { message } });
+  connect();
+  return () => {
+    closedByUs = true;
+    socket.close();
+  };
 }
 
 async function request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {

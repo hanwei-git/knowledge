@@ -1,55 +1,48 @@
-import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  archiveEntry,
-  commitKnowledge,
-  createInboxEntry,
-  createProject,
-  createStructuredEntry,
-  getGitDiff,
-  getGitLog,
-  getGitStatus,
-  getSummary,
-  organizeCapture,
-  searchEntries
-} from "./api.js";
+import { createEntry, deleteEntry, getSummary, organizeCapture, searchEntries, subscribeToChanges, updateEntry } from "./api.js";
 import type { OrganizedDraft } from "../core/organizer.js";
-import type { EntryStatus, EntryType, KnowledgeEntry, ProjectWiki, SearchFilters } from "../core/types.js";
+import type { CreateEntryInput, Entry, EntryStatus, EntryType, SearchFilters, Summary } from "../core/types.js";
 import "./styles.css";
 
-type View = "home" | "projects" | "inbox" | "search" | "git";
+type View = "capture" | "browse";
 
 const entryTypes: EntryType[] = ["troubleshooting", "decision", "reference", "runbook", "note"];
 const statuses: EntryStatus[] = ["draft", "active", "archived"];
+const emptySummary: Summary = { entries: [], projects: [], tags: [] };
 
 function App() {
-  const [view, setView] = useState<View>("home");
-  const [summary, setSummary] = useState({ entries: [] as KnowledgeEntry[], projects: [] as ProjectWiki[], inbox: [] as KnowledgeEntry[], tags: [] as string[] });
-  const [selectedProject, setSelectedProject] = useState<string>("");
+  const [view, setView] = useState<View>("capture");
+  const [summary, setSummary] = useState<Summary>(emptySummary);
+  const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("");
 
   async function refresh() {
     setSummary(await getSummary());
+    setRevision((value) => value + 1);
   }
 
   useEffect(() => {
     refresh().catch((error) => setNotice(error.message));
+    return subscribeToChanges(() => {
+      refresh().catch((error) => setNotice(error.message));
+    });
   }, []);
 
-  const currentProject = summary.projects.find((project) => project.slug === selectedProject) ?? summary.projects[0];
+  const draftCount = summary.entries.filter((entry) => entry.status === "draft").length;
 
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">md</span>
+          <span className="brand-mark">kb</span>
           <div>
-            <strong>Engineering Wiki</strong>
-            <small>Markdown knowledge desk</small>
+            <strong>Knowledge</strong>
+            <small>Cloud-synced notes</small>
           </div>
         </div>
         <nav>
-          {(["home", "projects", "inbox", "search", "git"] as View[]).map((item) => (
+          {(["capture", "browse"] as View[]).map((item) => (
             <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}>
               {labelView(item)}
             </button>
@@ -57,15 +50,14 @@ function App() {
         </nav>
         <div className="sidebar-note">
           <span>{summary.entries.length}</span> entries
-          <span>{summary.projects.length}</span> projects
-          <span>{summary.inbox.length}</span> inbox
+          <span>{draftCount}</span> to triage
         </div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Local-first / Git-backed / Markdown portable</p>
+            <p className="eyebrow">Synced live across devices</p>
             <h1>{labelView(view)}</h1>
           </div>
           <button className="ghost" onClick={() => refresh().then(() => setNotice("Refreshed"))}>Refresh</button>
@@ -73,23 +65,14 @@ function App() {
 
         {notice && <div className="notice">{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
 
-        {view === "home" && <Home summary={summary} onSaved={refresh} setNotice={setNotice} />}
-        {view === "projects" && <Projects projects={summary.projects} selected={currentProject} onSelect={setSelectedProject} onSaved={refresh} setNotice={setNotice} />}
-        {view === "inbox" && <Inbox entries={summary.inbox} projects={summary.projects} onSaved={refresh} setNotice={setNotice} />}
-        {view === "search" && <Search projects={summary.projects} tags={summary.tags} setNotice={setNotice} />}
-        {view === "git" && <GitPanel setNotice={setNotice} />}
+        {view === "capture" && <CaptureWorkspace summary={summary} onSaved={refresh} setNotice={setNotice} />}
+        {view === "browse" && <Browse revision={revision} projects={summary.projects} tags={summary.tags} onSaved={refresh} setNotice={setNotice} />}
       </section>
     </main>
   );
 }
 
-function Home({ summary, onSaved, setNotice }: { summary: Awaited<ReturnType<typeof getSummary>>; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
-  return (
-    <CaptureWorkspace summary={summary} onSaved={onSaved} setNotice={setNotice} />
-  );
-}
-
-function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Awaited<ReturnType<typeof getSummary>>; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
+function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Summary; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
   const [body, setBody] = useState("");
   const [draft, setDraft] = useState<OrganizedDraft | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -100,46 +83,39 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Awaited<Re
     if (!validateBody(body)) {
       return;
     }
-    setSaving(true);
-    try {
-      await createInboxEntry({
-        title: titleFromBody(body),
-        body: body.trim(),
-        tags: [],
-        type: "note",
-        project: "",
-        status: "draft",
-        source: ""
-      });
-      resetCapture();
-      setNotice("Saved to inbox for project review");
-      await onSaved();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSaving(false);
-    }
+    await save({
+      title: titleFromBody(body),
+      body: body.trim(),
+      tags: [],
+      type: "note",
+      project: "",
+      status: "draft",
+      source: ""
+    }, "Saved to inbox for review");
   }
 
   async function organizeAndSave() {
     if (!validateBody(body)) {
       return;
     }
+    const organized = await ensureDraft();
+    await save({
+      title: organized.title,
+      body: organized.body,
+      tags: organized.tags,
+      type: organized.type,
+      project: organized.project,
+      status: organized.status,
+      source: organized.source
+    }, organized.project ? `Saved to ${organized.project}` : "Saved to inbox; project needs review");
+  }
+
+  async function save(input: CreateEntryInput, message: string) {
     setSaving(true);
     try {
-      const organized = await ensureDraft();
-      const input = {
-        title: organized.title,
-        body: organized.body,
-        tags: organized.tags,
-        type: organized.type,
-        project: organized.project,
-        status: organized.status,
-        source: organized.source
-      };
-      const entry = organized.project ? await createStructuredEntry(input) : await createInboxEntry(input);
+      await createEntry(input);
       resetCapture();
-      setNotice(organized.project ? `Saved to ${entry.metadata.project}` : "Saved to inbox; project needs review");
+      setNotice(message);
       await onSaved();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -223,7 +199,6 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Awaited<Re
           <span className="suggestion-label">Suggested</span>
           <span>{suggestion.project || "inbox"}</span>
           <span>{suggestion.type}</span>
-          <span>{suggestion.status}</span>
           {suggestion.tags.map((tag) => <span key={tag}>#{tag}</span>)}
           <small>{suggestion.reason}</small>
         </div>
@@ -237,10 +212,12 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Awaited<Re
         }}>
           <div className="row">
             <input value={draft.title} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="Title" required />
-            <select value={draft.project} onChange={(event) => updateDraft({ project: event.target.value, status: event.target.value ? "active" : "draft" })}>
-              <option value="">Inbox</option>
-              {summary.projects.map((project) => <option key={project.slug} value={project.slug}>{project.title}</option>)}
-            </select>
+            <input
+              value={draft.project}
+              onChange={(event) => updateDraft({ project: event.target.value, status: event.target.value ? "active" : "draft" })}
+              placeholder="Project (optional)"
+              list="known-projects"
+            />
           </div>
           <div className="detail-grid">
             <select value={draft.type} onChange={(event) => updateDraft({ type: event.target.value as EntryType })}>
@@ -258,6 +235,9 @@ function CaptureWorkspace({ summary, onSaved, setNotice }: { summary: Awaited<Re
           </div>
         </form>
       )}
+      <datalist id="known-projects">
+        {summary.projects.map((project) => <option key={project} value={project} />)}
+      </datalist>
     </section>
   );
 }
@@ -273,193 +253,41 @@ function titleFromBody(body: string): string {
   return line.length > 72 ? `${line.slice(0, 69).trimEnd()}...` : line;
 }
 
-function Projects({ projects, selected, onSelect, onSaved, setNotice }: {
-  projects: ProjectWiki[];
-  selected?: ProjectWiki;
-  onSelect: (slug: string) => void;
+function Browse({ revision, projects, tags, onSaved, setNotice }: {
+  revision: number;
+  projects: string[];
+  tags: string[];
   onSaved: () => Promise<void>;
   setNotice: (value: string) => void;
 }) {
-  return (
-    <div className="grid project-layout">
-      <section className="panel">
-        <h2>Project map</h2>
-        <CreateProjectForm onSaved={onSaved} setNotice={setNotice} />
-        <div className="project-stack">
-          {projects.map((project) => (
-            <button className={`project-button ${selected?.slug === project.slug ? "active" : ""}`} key={project.slug} onClick={() => onSelect(project.slug)}>
-              <strong>{project.title}</strong>
-              <small>{project.slug}</small>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel main-panel">
-        {selected ? (
-          <>
-            <div className="project-heading">
-              <div>
-                <p className="eyebrow">{selected.slug}</p>
-                <h2>{selected.title}</h2>
-                <p>{selected.summary}</p>
-              </div>
-            </div>
-            <CreateStructuredEntry project={selected.slug} onSaved={onSaved} setNotice={setNotice} />
-            <WikiGroups project={selected} />
-          </>
-        ) : (
-          <p className="muted">Create a project first. Project pages are the primary wiki anchors.</p>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function CreateProjectForm({ onSaved, setNotice }: { onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
-  const [title, setTitle] = useState("");
-  const [slug, setSlug] = useState("");
-  const [summary, setSummary] = useState("");
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    await createProject({ title, slug, summary });
-    setTitle("");
-    setSlug("");
-    setSummary("");
-    setNotice("Project page created");
-    await onSaved();
-  }
-
-  return (
-    <form className="compact-form" onSubmit={submit}>
-      <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Project title" required />
-      <input value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="project-slug" />
-      <textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="What this system owns" required />
-      <button>Create project</button>
-    </form>
-  );
-}
-
-function CreateStructuredEntry({ project, onSaved, setNotice }: { project: string; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [type, setType] = useState<EntryType>("troubleshooting");
-  const [tags, setTags] = useState("");
-  const [source, setSource] = useState("");
-  const [body, setBody] = useState("");
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    await createStructuredEntry({ title, type, project, tags: splitTags(tags), status: "active", source, body });
-    setTitle("");
-    setTags("");
-    setSource("");
-    setBody("");
-    setOpen(false);
-    setNotice("Entry added to project");
-    await onSaved();
-  }
-
-  return (
-    <div className="inline-editor">
-      <button className="ghost" onClick={() => setOpen(!open)}>{open ? "Close editor" : "Add structured entry"}</button>
-      {open && (
-        <form className="compact-form" onSubmit={submit}>
-          <div className="row">
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Entry title" required />
-            <select value={type} onChange={(event) => setType(event.target.value as EntryType)}>
-              {entryTypes.map((item) => <option key={item}>{item}</option>)}
-            </select>
-          </div>
-          <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="tags" />
-          <input value={source} onChange={(event) => setSource(event.target.value)} placeholder="source URL or file path" />
-          <textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder={templateHint(type)} required />
-          <button>Save entry</button>
-        </form>
-      )}
-    </div>
-  );
-}
-
-function WikiGroups({ project }: { project: ProjectWiki }) {
-  return (
-    <div className="wiki-groups">
-      {entryTypes.map((type) => (
-        <section key={type}>
-          <h3>{type}</h3>
-          <EntryList entries={project.groups[type] ?? []} empty={`No ${type} entries.`} />
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function Inbox({ entries, projects, onSaved, setNotice }: { entries: KnowledgeEntry[]; projects: ProjectWiki[]; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
-  return (
-    <div className="panel">
-      <h2>Inbox triage</h2>
-      <p className="muted">Turn rough notes into project knowledge by choosing a project, type, status, and tags.</p>
-      <div className="inbox-list">
-        {entries.map((entry) => <ArchiveCard key={entry.relativePath} entry={entry} projects={projects} onSaved={onSaved} setNotice={setNotice} />)}
-        {!entries.length && <p className="muted">Inbox is clear.</p>}
-      </div>
-    </div>
-  );
-}
-
-function ArchiveCard({ entry, projects, onSaved, setNotice }: { entry: KnowledgeEntry; projects: ProjectWiki[]; onSaved: () => Promise<void>; setNotice: (value: string) => void }) {
-  const [project, setProject] = useState(projects[0]?.slug ?? "");
-  const [type, setType] = useState<EntryType>("troubleshooting");
-  const [status, setStatus] = useState<EntryStatus>("active");
-  const [tags, setTags] = useState(entry.metadata.tags.join(", "));
-
-  async function archive() {
-    await archiveEntry(entry.relativePath, { project, type, status, tags: splitTags(tags) });
-    setNotice("Inbox entry archived");
-    await onSaved();
-  }
-
-  return (
-    <article className="archive-card">
-      <EntryBlock entry={entry} />
-      <div className="archive-controls">
-        <select value={project} onChange={(event) => setProject(event.target.value)}>
-          {projects.map((item) => <option key={item.slug} value={item.slug}>{item.title}</option>)}
-        </select>
-        <select value={type} onChange={(event) => setType(event.target.value as EntryType)}>
-          {entryTypes.map((item) => <option key={item}>{item}</option>)}
-        </select>
-        <select value={status} onChange={(event) => setStatus(event.target.value as EntryStatus)}>
-          {statuses.map((item) => <option key={item}>{item}</option>)}
-        </select>
-        <input value={tags} onChange={(event) => setTags(event.target.value)} />
-        <button onClick={archive} disabled={!project}>Archive</button>
-      </div>
-    </article>
-  );
-}
-
-function Search({ projects, tags, setNotice }: { projects: ProjectWiki[]; tags: string[]; setNotice: (value: string) => void }) {
   const [filters, setFilters] = useState<SearchFilters>({});
-  const [results, setResults] = useState<KnowledgeEntry[]>([]);
+  const [results, setResults] = useState<Entry[]>([]);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  async function runSearch(next: SearchFilters) {
     try {
-      setResults(await searchEntries(filters));
+      setResults(await searchEntries(next));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
   }
 
+  useEffect(() => {
+    runSearch(filters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revision]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await runSearch(filters);
+  }
+
   return (
     <section className="panel">
       <form className="search-form" onSubmit={submit}>
-        <input value={filters.query ?? ""} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="Search title, Markdown body, or tags" />
+        <input value={filters.query ?? ""} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="Search title, body, or tags" />
         <select value={filters.project ?? ""} onChange={(event) => setFilters({ ...filters, project: event.target.value })}>
           <option value="">All projects</option>
-          {projects.map((project) => <option key={project.slug} value={project.slug}>{project.title}</option>)}
+          {projects.map((project) => <option key={project} value={project}>{project}</option>)}
         </select>
         <select value={filters.type ?? ""} onChange={(event) => setFilters({ ...filters, type: event.target.value as SearchFilters["type"] })}>
           <option value="">All types</option>
@@ -475,103 +303,97 @@ function Search({ projects, tags, setNotice }: { projects: ProjectWiki[]; tags: 
         </select>
         <button>Search</button>
       </form>
-      <EntryList entries={results} empty="Run a search to see matching Markdown entries." />
+      <EntryList entries={results} empty="Nothing here yet — capture a note to get started." projects={projects} onSaved={onSaved} setNotice={setNotice} />
+      <datalist id="known-projects">
+        {projects.map((project) => <option key={project} value={project} />)}
+      </datalist>
     </section>
   );
 }
 
-function GitPanel({ setNotice }: { setNotice: (value: string) => void }) {
-  const [changes, setChanges] = useState<unknown>([]);
-  const [diff, setDiff] = useState("");
-  const [log, setLog] = useState<unknown>([]);
-  const [message, setMessage] = useState("");
-
-  async function refreshGit() {
-    const [statusResult, diffResult, logResult] = await Promise.all([getGitStatus(), getGitDiff(), getGitLog()]);
-    setChanges(statusResult);
-    setDiff(typeof diffResult.diff === "string" ? diffResult.diff : diffResult.diff.error);
-    setLog(logResult);
+function EntryList({ entries, empty, projects, onSaved, setNotice }: {
+  entries: Entry[];
+  empty: string;
+  projects: string[];
+  onSaved: () => Promise<void>;
+  setNotice: (value: string) => void;
+}) {
+  if (!entries.length) {
+    return <p className="muted">{empty}</p>;
   }
-
-  useEffect(() => {
-    refreshGit().catch((error) => setNotice(error.message));
-  }, []);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const result = await commitKnowledge(message);
-    setNotice(result.output || "Knowledge committed");
-    setMessage("");
-    await refreshGit();
-  }
-
-  const normalizedChanges = Array.isArray(changes) ? changes : [];
-  const normalizedLog = Array.isArray(log) ? log : [];
-  const gitError = !Array.isArray(changes) ? (changes as { error: string }).error : !Array.isArray(log) ? (log as { error: string }).error : "";
-
   return (
-    <div className="grid two">
-      <section className="panel">
-        <h2>Local Git changes</h2>
-        {gitError && <p className="error">{gitError}</p>}
-        <button className="ghost" onClick={refreshGit}>Refresh Git</button>
-        <ul className="change-list">
-          {normalizedChanges.map((change) => <li key={`${change.code}-${change.path}`}><span>{change.code}</span>{change.path}</li>)}
-          {!normalizedChanges.length && <li className="muted">No local changes reported.</li>}
-        </ul>
-        <form className="compact-form" onSubmit={submit}>
-          <input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Commit message" required />
-          <button>Commit knowledge files</button>
-        </form>
-      </section>
-      <section className="panel">
-        <h2>Diff</h2>
-        <pre className="diff">{diff || "No diff for knowledge/."}</pre>
-      </section>
-      <section className="panel">
-        <h2>Recent knowledge commits</h2>
-        <ul className="log-list">
-          {normalizedLog.map((item) => <li key={item}>{item}</li>)}
-          {!normalizedLog.length && <li className="muted">No knowledge history yet.</li>}
-        </ul>
-      </section>
+    <div className="entry-list">
+      {entries.map((entry) => <EntryBlock key={entry.id} entry={entry} projects={projects} onSaved={onSaved} setNotice={setNotice} />)}
     </div>
   );
 }
 
-function EntryList({ entries, empty }: { entries: KnowledgeEntry[]; empty: string }) {
-  if (!entries.length) {
-    return <p className="muted">{empty}</p>;
+function EntryBlock({ entry, projects, onSaved, setNotice }: {
+  entry: Entry;
+  projects: string[];
+  onSaved: () => Promise<void>;
+  setNotice: (value: string) => void;
+}) {
+  async function remove() {
+    if (!window.confirm(`Delete "${entry.title}"?`)) {
+      return;
+    }
+    try {
+      await deleteEntry(entry.id);
+      setNotice("Entry deleted");
+      await onSaved();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
   }
-  return <div className="entry-list">{entries.map((entry) => <EntryBlock key={entry.relativePath} entry={entry} />)}</div>;
-}
 
-function EntryBlock({ entry }: { entry: KnowledgeEntry }) {
   return (
     <article className="entry-block">
       <div>
-        <h4>{entry.metadata.title}</h4>
-        <p>{entry.excerpt}</p>
+        <h4>{entry.title}</h4>
+        <p>{entry.body.slice(0, 180)}</p>
       </div>
       <footer>
-        <span>{entry.metadata.type}</span>
-        <span>{entry.metadata.status}</span>
-        {entry.metadata.project && <span>{entry.metadata.project}</span>}
-        {entry.metadata.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+        <span>{entry.type}</span>
+        <span>{entry.status}</span>
+        {entry.project && <span>{entry.project}</span>}
+        {entry.tags.map((tag) => <span key={tag}>#{tag}</span>)}
       </footer>
-      <small>{entry.relativePath}</small>
+      {entry.status === "draft" && <TriageControls entry={entry} projects={projects} onSaved={onSaved} setNotice={setNotice} />}
+      <button className="ghost entry-delete" onClick={remove}>Delete</button>
     </article>
   );
 }
 
-function ProjectCard({ project }: { project: ProjectWiki }) {
-  const total = useMemo(() => entryTypes.reduce((count, type) => count + (project.groups[type]?.length ?? 0), 0), [project]);
+function TriageControls({ entry, projects, onSaved, setNotice }: {
+  entry: Entry;
+  projects: string[];
+  onSaved: () => Promise<void>;
+  setNotice: (value: string) => void;
+}) {
+  const [project, setProject] = useState(projects[0] ?? "");
+  const [type, setType] = useState<EntryType>("note");
+  const [tags, setTags] = useState(entry.tags.join(", "));
+
+  async function archive() {
+    try {
+      await updateEntry(entry.id, { project, type, tags: splitTags(tags), status: "active" });
+      setNotice("Moved out of the inbox");
+      await onSaved();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   return (
-    <article className="project-card">
-      <strong>{project.title}</strong>
-      <p>{project.summary || "No summary yet."}</p>
-      <small>{total} entries / {project.slug}</small>
-    </article>
+    <div className="archive-controls">
+      <input value={project} onChange={(event) => setProject(event.target.value)} placeholder="Project" list="known-projects" />
+      <select value={type} onChange={(event) => setType(event.target.value as EntryType)}>
+        {entryTypes.map((item) => <option key={item}>{item}</option>)}
+      </select>
+      <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="tags" />
+      <button onClick={archive} disabled={!project}>Archive</button>
+    </div>
   );
 }
 
@@ -580,25 +402,7 @@ function splitTags(value: string): string[] {
 }
 
 function labelView(view: View): string {
-  return {
-    home: "Workbench",
-    projects: "Project Wiki",
-    inbox: "Inbox",
-    search: "Search",
-    git: "Git History"
-  }[view];
-}
-
-function templateHint(type: EntryType): string {
-  const hints: Record<EntryType, string> = {
-    troubleshooting: "## Symptom\n\n## Cause\n\n## Fix\n\n## Verification\n\n## Reuse notes",
-    decision: "## Context\n\n## Decision\n\n## Alternatives\n\n## Consequences",
-    reference: "## Source summary\n\n## Key points\n\n## How it applies",
-    runbook: "## When to use\n\n## Steps\n\n## Rollback\n\n## Checks",
-    note: "Write the useful thing plainly.",
-    project: "Project overview"
-  };
-  return hints[type];
+  return { capture: "Capture", browse: "Browse" }[view];
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

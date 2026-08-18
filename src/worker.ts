@@ -1,110 +1,96 @@
-import type { EntryType, KnowledgeEntry, ProjectWiki, SearchFilters } from "./core/types.js";
+import { createEntry, deleteEntry, getSummary, searchEntries, updateEntry } from "./core/entryStore.js";
+import { organizeDraft } from "./core/organizer.js";
+import type { CreateEntryInput, SearchFilters } from "./core/types.js";
+
+export { SyncHub } from "./worker/syncHub.js";
 
 interface Env {
+  DB: D1Database;
+  SYNC_HUB: DurableObjectNamespace;
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
 }
 
-interface Summary {
-  entries: KnowledgeEntry[];
-  projects: ProjectWiki[];
-  inbox: KnowledgeEntry[];
-  tags: string[];
-}
-
-const GROUP_TYPES: EntryType[] = ["project", "troubleshooting", "decision", "reference", "runbook", "note"];
-
-const entries: KnowledgeEntry[] = [
-  {
-    relativePath: "projects/ap2/index.md",
-    absolutePath: "knowledge/projects/ap2/index.md",
-    metadata: {
-      title: "APPLIES 2",
-      type: "project",
-      project: "ap2",
-      tags: [],
-      status: "active",
-      createdAt: "2026-07-06",
-      updatedAt: "2026-07-06",
-      source: ""
-    },
-    body: "# APPLIES 2\n\nImmigration Project\n\n## Context\n\n## Key links\n\n## Open questions",
-    excerpt: "APPLIES 2 Immigration Project Context Key links Open questions"
-  }
-];
-
-const projects = buildProjects(entries);
-const summary: Summary = {
-  entries,
-  projects,
-  inbox: [],
-  tags: []
-};
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/summary" && request.method === "GET") {
-      return json(summary);
-    }
+    try {
+      if (url.pathname === "/api/sync") {
+        return env.SYNC_HUB.get(env.SYNC_HUB.idFromName("singleton")).fetch(request);
+      }
 
-    if (url.pathname === "/api/search" && request.method === "GET") {
-      return json(searchEntries(url));
-    }
+      if (url.pathname.startsWith("/api/")) {
+        return await routeApi(request, env, url);
+      }
 
-    if (url.pathname.startsWith("/api/")) {
-      return json({
-        error: "This Cloudflare deployment is read-only. Run the local app for write and Git operations."
-      }, 501);
+      return env.ASSETS.fetch(request);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
-
-    return env.ASSETS.fetch(request);
   }
 };
 
-function searchEntries(url: URL): KnowledgeEntry[] {
-  const filters: SearchFilters = {
-    query: url.searchParams.get("query") ?? "",
-    project: url.searchParams.get("project") ?? "",
-    type: (url.searchParams.get("type") ?? "") as SearchFilters["type"],
-    tag: url.searchParams.get("tag") ?? "",
-    status: (url.searchParams.get("status") ?? "") as SearchFilters["status"]
-  };
-  const query = filters.query?.trim().toLowerCase() ?? "";
-  return entries.filter((entry) => {
-    const haystack = `${entry.metadata.title}\n${entry.body}\n${entry.metadata.tags.join(" ")}`.toLowerCase();
-    return (!query || haystack.includes(query))
-      && (!filters.project || entry.metadata.project === filters.project)
-      && (!filters.type || entry.metadata.type === filters.type)
-      && (!filters.tag || entry.metadata.tags.includes(filters.tag))
-      && (!filters.status || entry.metadata.status === filters.status);
-  });
-}
+async function routeApi(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method === "GET" && url.pathname === "/api/summary") {
+    return json(await getSummary(env.DB));
+  }
 
-function buildProjects(allEntries: KnowledgeEntry[]): ProjectWiki[] {
-  const slugs = [...new Set(allEntries.map((entry) => entry.metadata.project).filter(Boolean))];
-  return slugs.map((slug) => {
-    const projectEntries = allEntries.filter((entry) => entry.metadata.project === slug);
-    const index = projectEntries.find((entry) => entry.metadata.type === "project");
-    const groups = Object.fromEntries(GROUP_TYPES.map((type) => [type, [] as KnowledgeEntry[]])) as ProjectWiki["groups"];
-    for (const entry of projectEntries) {
-      groups[entry.metadata.type].push(entry);
-    }
-    return {
-      slug,
-      title: index?.metadata.title ?? slug,
-      summary: firstParagraph(index?.body ?? ""),
-      index,
-      groups,
-      recent: projectEntries.filter((entry) => entry.metadata.type !== "project")
+  if (request.method === "GET" && url.pathname === "/api/search") {
+    const filters: SearchFilters = {
+      query: url.searchParams.get("query") ?? "",
+      project: url.searchParams.get("project") ?? "",
+      type: (url.searchParams.get("type") ?? "") as SearchFilters["type"],
+      tag: url.searchParams.get("tag") ?? "",
+      status: (url.searchParams.get("status") ?? "") as SearchFilters["status"]
     };
+    return json(await searchEntries(env.DB, filters));
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/entries") {
+    const input = await readJson<CreateEntryInput>(request);
+    const entry = await createEntry(env.DB, input);
+    await broadcast(env);
+    return json(entry, 201);
+  }
+
+  const entryIdMatch = url.pathname.match(/^\/api\/entries\/([^/]+)$/);
+  if (entryIdMatch) {
+    const id = decodeURIComponent(entryIdMatch[1]);
+    if (request.method === "PATCH") {
+      const updates = await readJson<Partial<CreateEntryInput>>(request);
+      const entry = await updateEntry(env.DB, id, updates);
+      await broadcast(env);
+      return json(entry);
+    }
+    if (request.method === "DELETE") {
+      await deleteEntry(env.DB, id);
+      await broadcast(env);
+      return new Response(null, { status: 204 });
+    }
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/organize") {
+    const body = await readJson<{ body: string }>(request);
+    const summary = await getSummary(env.DB);
+    return json(organizeDraft({ body: body.body ?? "", projects: summary.projects, tags: summary.tags }));
+  }
+
+  return json({ error: "API route not found." }, 404);
+}
+
+async function broadcast(env: Env): Promise<void> {
+  const stub = env.SYNC_HUB.get(env.SYNC_HUB.idFromName("singleton"));
+  await stub.fetch("https://sync-hub/broadcast", {
+    method: "POST",
+    body: JSON.stringify({ type: "entries-changed", at: new Date().toISOString() })
   });
 }
 
-function firstParagraph(body: string): string {
-  return body.split(/\n\s*\n/).map((part) => part.replace(/^#+\s*/, "").trim()).find(Boolean) ?? "";
+async function readJson<T>(request: Request): Promise<T> {
+  const text = await request.text();
+  return (text ? JSON.parse(text) : {}) as T;
 }
 
 function json(value: unknown, status = 200): Response {

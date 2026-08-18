@@ -12,5 +12,27 @@
   },
   "compatibility_flags": [
     "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "knowledge-db",
+      "database_id": "a49da6ce-3876-4dc7-b92b-13abb959dcf6",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SYNC_HUB",
+        "class_name": "SyncHub"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SyncHub"]
+    }
   ]
 }

@@ -1,7 +1,15 @@
 node_modules/
-dist/
+dist/*
+!dist/client/
+!dist/client/**
 .env
 .env.example
 .env.local
 *.env
 *.log
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
