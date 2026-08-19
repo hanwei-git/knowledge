@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "tsx --test src/core/organizer.test.ts src/core/commandRules.test.ts src/core/secretScanner.test.ts src/ui/api.test.ts && vitest run",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && wrangler d1 migrations apply knowledge-db --remote && wrangler deploy",
     "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
     "preview": "npm run build && wrangler dev",
     "prepare": "git config core.hooksPath .githooks"

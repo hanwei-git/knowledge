@@ -3,6 +3,7 @@ import type { CreateEntryInput, Entry, Summary } from "./types.js";
 interface EntryRow {
   id: string;
   title: string;
+  type: string;
   body: string;
   annotation: string;
   tags: string;
@@ -14,11 +15,12 @@ export async function createEntry(db: D1Database, input: CreateEntryInput): Prom
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   await db.prepare(
-    `INSERT INTO entries (id, title, body, annotation, tags, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`
+    `INSERT INTO entries (id, title, type, body, annotation, tags, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`
   ).bind(
     id,
     input.title.trim(),
+    input.type,
     input.body.trim(),
     input.annotation.trim(),
     JSON.stringify(uniqueClean(input.tags)),
@@ -82,6 +84,7 @@ function rowToEntry(row: EntryRow): Entry {
   return {
     id: row.id,
     title: row.title,
+    type: row.type as Entry["type"],
     body: row.body,
     annotation: row.annotation,
     tags: JSON.parse(row.tags) as string[],

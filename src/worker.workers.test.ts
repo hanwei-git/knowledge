@@ -9,7 +9,7 @@ describe("worker API", () => {
   it("creates, reads, updates, and deletes a command entry", async () => {
     const createResponse = await SELF.fetch("https://example.com/api/entries", {
       method: "POST",
-      body: JSON.stringify({ title: "Revert last commit", body: "git reset HEAD~1", annotation: "还原最近一个提交到stage", tags: ["git"] })
+      body: JSON.stringify({ title: "Revert last commit", type: "command", body: "git reset HEAD~1", annotation: "还原最近一个提交到stage", tags: ["git"] })
     });
     expect(createResponse.status).toBe(201);
     const created = await createResponse.json() as { id: string };
@@ -47,10 +47,31 @@ describe("worker API", () => {
 
     await SELF.fetch("https://example.com/api/entries", {
       method: "POST",
-      body: JSON.stringify({ title: "Note", body: "echo hi", annotation: "", tags: [] })
+      body: JSON.stringify({ title: "Note", type: "command", body: "echo hi", annotation: "", tags: [] })
     });
 
     const payload = JSON.parse(await message) as { type: string };
     expect(payload.type).toBe("entries-changed");
+  });
+
+  it("creates a note entry via the API", async () => {
+    const createResponse = await SELF.fetch("https://example.com/api/entries", {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Release checklist",
+        type: "note",
+        body: "1. Run tests\n2. Tag release\n3. Deploy",
+        annotation: "Steps for a manual release",
+        tags: ["release"]
+      })
+    });
+    expect(createResponse.status).toBe(201);
+    const created = await createResponse.json() as { type: string };
+    expect(created.type).toBe("note");
+
+    const summaryResponse = await SELF.fetch("https://example.com/api/summary");
+    const summary = await summaryResponse.json() as { entries: { type: string }[] };
+    expect(summary.entries).toHaveLength(1);
+    expect(summary.entries[0].type).toBe("note");
   });
 });

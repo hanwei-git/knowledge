@@ -79,10 +79,46 @@ function buildCombinedDraft(raw: string, existingTags: string[], entries: Entry[
   };
 }
 
+export interface OrganizeNoteDraftInput {
+  body: string;
+  annotation: string;
+  tags: string[];
+}
+
+export interface OrganizedNoteDraft {
+  title: string;
+  annotation: string;
+  tags: string[];
+}
+
+/**
+ * Notes are freeform steps/text, not shell syntax — there's no comment
+ * extraction or per-tool annotation guessing like organizeDraft does for
+ * commands. The title is inferred from the first line and tags come only
+ * from inline #hashtags plus previously-used tags mentioned in the text;
+ * the body itself is left exactly as the user wrote it.
+ */
+export function organizeNoteDraft(input: OrganizeNoteDraftInput): OrganizedNoteDraft {
+  const body = input.body.trim();
+  const annotation = input.annotation.trim();
+  return {
+    title: inferTitle(body),
+    annotation,
+    tags: inferNoteTags(body, annotation, input.tags)
+  };
+}
+
+function inferNoteTags(body: string, annotation: string, existingTags: string[]): string[] {
+  const haystack = `${body}\n${annotation}`;
+  const inlineTags = [...haystack.matchAll(/#([\p{L}\p{N}_-]+)/gu)].map((match) => match[1]);
+  const reusedTags = existingTags.filter((tag) => tag && haystack.toLowerCase().includes(tag.toLowerCase()));
+  return unique([...inlineTags, ...reusedTags]).slice(0, 6);
+}
+
 export function inferTitle(body: string): string {
   const line = body.split("\n").find(Boolean);
   if (!line) {
-    return "Untitled command";
+    return "Untitled entry";
   }
   return line.length > 72 ? `${line.slice(0, 69).trimEnd()}...` : line;
 }
